@@ -118,11 +118,18 @@ ensure_ds "$POOL_R/ROOT/debian"
 ensure_ds "$POOL_B/BOOT"        -o canmount=off -o mountpoint=none
 ensure_ds "$POOL_B/BOOT/debian"
 
-# Temp mountpoints for install
-zfs set mountpoint=/mnt      "$POOL_R/ROOT/debian"
-zfs set mountpoint=/mnt/boot "$POOL_B/BOOT/debian"
-zfs mount "$POOL_R/ROOT/debian"
-mkdir -p /mnt/boot && zfs mount "$POOL_B/BOOT/debian"
+# Temp mountpoints for install (idempotent)
+ensure_mount() { # usage: ensure_mount <dataset> <mountpoint>
+  local ds="$1" mp="$2"
+  zfs set mountpoint="$mp" "$ds"
+  if [ "$(zfs get -H -o value mounted "$ds")" != "yes" ]; then
+    zfs mount "$ds"
+  fi
+}
+
+ensure_mount "$POOL_R/ROOT/debian" /mnt
+mkdir -p /mnt/boot
+ensure_mount "$POOL_B/BOOT/debian" /mnt/boot
 
 # App datasets (mounted under /mnt/* for bootstrap)
 ensure_ds "$POOL_R/var"                   -o mountpoint=/mnt/var
