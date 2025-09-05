@@ -51,35 +51,23 @@ fi
 # --- cfg (override via .env) ---
 [ -f .env ] && set -a && . ./.env && set +a
 
-# Function to auto-detect disk if not specified
+# Auto-detect disk if not set
 auto_detect_disk() {
-    [ -n "${DISK:-}" ] && return 0
-    
-    [ "$DEBUG" = "1" ] && printf "\033[1;36m[DEBUG]\033[0m DISK not specified, attempting auto-detection...\n" >&2
-    
-    # Get list of block devices, excluding loop devices, ram disks, etc.
-    local disks
-    disks=$(lsblk -dno NAME,SIZE,TYPE | awk '$3=="disk" && $1!~/^(loop|ram|sr)/ {print "/dev/" $1 " " $2}' | sort -k2 -hr)
-    
-    if [ -z "$disks" ]; then
-        printf "\033[1;31m[FAIL]\033[0m No suitable disks found for auto-detection\n"
-        exit 1
-    fi
-    
-    # Select the largest disk
-    DISK=$(echo "$disks" | head -n1 | awk '{print $1}')
-    local size
-    size=$(echo "$disks" | head -n1 | awk '{print $2}')
-    
-    printf "\033[1m[INFO]\033[0m Auto-detected disk: %s (size: %s)\n" "$DISK" "$size"
-    printf "\033[1m[INFO]\033[0m Available disks:\n"
-    echo "$disks" | while IFS= read -r line; do echo "  $line"; done
+  local candidates
+  candidates=$(lsblk -dn -o NAME,SIZE,TYPE | awk '$3=="disk" {print "/dev/"$1" "$2}' | sort -k2 -hr)
+  
+  if [ -n "$candidates" ]; then
+    local selected_disk
+    selected_disk=$(echo "$candidates" | head -1 | awk '{print $1}')
+    [ "$DEBUG" = "1" ] && echo "[DEBUG] Available disks: $candidates" >&2
+    [ "$DEBUG" = "1" ] && echo "[DEBUG] Auto-selected disk: $selected_disk" >&2
+    echo "$selected_disk"
+  else
+    echo "/dev/sda"  # fallback
+  fi
 }
 
-# Auto-detect disk first
-auto_detect_disk
-
-DISK="${DISK:-/dev/sda}"
+DISK="${DISK:-$(auto_detect_disk)}"
 HOSTNAME="${HOSTNAME:-mail1}"
 TZ="${TZ:-UTC}"
 POOL_R="${POOL_R:-rpool}"
@@ -103,7 +91,15 @@ ask(){ [ "$FORCE" = 1 ] && return 0; read -r -p "$1 [y/N]: " a; [[ $a =~ ^[Yy]$ 
 
 trap 'die "line $LINENO"' ERR
 [ "$(id -u)" -eq 0 ] || die "run as root"
-[ -b "$DISK" ] || die "disk $DISK missing"
+
+# Enhanced disk validation
+if [ ! -b "$DISK" ]; then
+  die "disk $DISK missing. Available disks: $(lsblk -dn -o NAME,SIZE,TYPE | awk '$3=="disk" {print "/dev/"$1" ("$2")"}')"
+fi
+
+# Show disk info for confirmation
+DISK_INFO=$(lsblk -dn -o NAME,SIZE,MODEL "$DISK" 2>/dev/null | tail -1)
+[ "$DEBUG" = "1" ] && echo "[DEBUG] Selected disk: $DISK_INFO"
 
 BOOTMODE=bios; [ -d /sys/firmware/efi ] && BOOTMODE=uefi
 b "Rescue: $BOOTMODE  •  Will WIPE $DISK"; ask "Proceed?" || die "aborted"
@@ -128,10 +124,15 @@ ok "Rescue prereqs"
 b "Partitioning $DISK"
 sgdisk -Z "$DISK"
 if [ "$BOOTMODE" = uefi ]; then
-  sgdisk -n1:1M:+1G -t1:EF00 "$DISK"; sgdisk -n2:0:+2G -t2:BF01 "$DISK"; sgdisk -n3:0:0 -t3:BF01 "$DISK"
+  # Align partitions to 1MiB boundaries for optimal SSD performance
+  sgdisk -a 2048 -n1:1M:+1G -t1:EF00 "$DISK"
+  sgdisk -a 2048 -n2:0:+2G -t2:BF01 "$DISK" 
+  sgdisk -a 2048 -n3:0:0 -t3:BF01 "$DISK"
   mkfs.vfat -F32 -n EFI "${DISK}1"
 else
-  sgdisk -n1:1M:+1M -t1:EF02 "$DISK"; sgdisk -n2:0:+2G -t2:BF01 "$DISK"; sgdisk -n3:0:0 -t3:BF01 "$DISK"
+  sgdisk -a 2048 -n1:1M:+1M -t1:EF02 "$DISK"
+  sgdisk -a 2048 -n2:0:+2G -t2:BF01 "$DISK" 
+  sgdisk -a 2048 -n3:0:0 -t3:BF01 "$DISK"
 fi
 ok "Partitioned"
 
@@ -174,21 +175,29 @@ debootstrap trixie /mnt http://deb.debian.org/debian/
 [ -x /mnt/bin/sh ] || die "bootstrap incomplete"
 ok "Base system"
 
-# --- 5) post-chroot payload with secure environment variable passing ---
+# --- 5) post-chroot payload (NO mountpoint flips here) ---
 b "Prepare post-chroot"
 cat >/mnt/root/post-chroot.sh <<'EOS'
 set -Eeuo pipefail
 trap 'echo "[FAIL] line $LINENO"; exit 1' ERR
 
-# Environment variables will be passed securely from parent process
-# No sed/perl injection vulnerability
+# Environment variables will be passed from parent shell
+# This eliminates the sed/perl injection vulnerability
+HN="$HOSTNAME"; TZ="$TZ"; DISK="$DISK"; RP="$POOL_R"; BP="$POOL_B"
+ARC_BYTES="$ARC_BYTES"
+NEW_USER="$NEW_USER"; NEW_USER_SUDO="$NEW_USER_SUDO"
+SSH_IMPORT_IDS="$SSH_IMPORT_IDS"; AUTH_KEYS="$SSH_AUTHORIZED_KEYS"; AUTH_URLS="$SSH_AUTHORIZED_KEYS_URLS"
+PERMIT="$PERMIT_ROOT_LOGIN"; PASSAUTH="$PASSWORD_AUTH"
 
 install -d -m0755 /var/cache/apt/archives/partial /var/lib/apt/lists/partial /var/lib/dpkg/updates /var/log/apt
 [ -s /var/lib/dpkg/status ] || :> /var/lib/dpkg/status
 
-echo "$HOSTNAME" >/etc/hostname
+echo "$HN" >/etc/hostname
 ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
-printf "127.0.0.1 localhost\n127.0.1.1 %s\n" "$HOSTNAME" >/etc/hosts
+printf "127.0.0.1 localhost\n127.0.1.1 $HN\n" >/etc/hosts
+
+hostname "$HN" || true
+grep -q '\<rescue\>' /etc/hosts || printf "127.0.0.1 rescue\n" >> /etc/hosts
 
 cat >/etc/apt/sources.list <<SL
 deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
@@ -208,16 +217,17 @@ locale-gen >/dev/null 2>&1 || true
 command -v update-locale >/dev/null 2>&1 && update-locale LANG=en_US.UTF-8 || true
 
 # ensure RW env + tmp
-zfs set readonly=off "$POOL_R/ROOT/debian" || true
-zfs set readonly=off "$POOL_R/var" || true
+zfs set readonly=off "$RP/ROOT/debian" >/dev/null 2>&1 || true
+zfs set readonly=off "$RP/var"         >/dev/null 2>&1 || true
+
 mount -o remount,rw / || true
 install -d -m1777 /var/tmp /tmp
 
 # hostid + cache + bootfs
 command -v zgenhostid >/dev/null 2>&1 && zgenhostid "$(hostid)" || true
-zpool set cachefile=/etc/zfs/zpool.cache "$POOL_R" || true
-zpool set cachefile=/etc/zfs/zpool.cache "$POOL_B" || true
-zpool set bootfs="$POOL_R/ROOT/debian" "$POOL_R" || true
+zpool set cachefile=/etc/zfs/zpool.cache "$RP" || true
+zpool set cachefile=/etc/zfs/zpool.cache "$BP" || true
+zpool set bootfs="$RP/ROOT/debian" "$RP" || true
 
 # import policy for initramfs (safe; no -f)
 cat >/etc/default/zfs <<ZDF
@@ -239,11 +249,11 @@ GRUB_DISTRIBUTOR=Debian
 GRUB_CMDLINE_LINUX=""
 GRUB_CMDLINE_LINUX_DEFAULT="quiet"
 G
-sed -ri "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"root=ZFS=$POOL_R/ROOT/debian rootdelay=5\"|" /etc/default/grub
+sed -ri "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"root=ZFS=$RP/ROOT/debian rootdelay=5\"|" /etc/default/grub
 grep -q '^GRUB_PRELOAD_MODULES' /etc/default/grub || echo 'GRUB_PRELOAD_MODULES="zfs"' >> /etc/default/grub
 
 # build initrd + install GRUB (BIOS/UEFI)
-mountpoint -q /boot || zfs mount "$POOL_B/BOOT/debian" || true
+mountpoint -q /boot || zfs mount "$BP/BOOT/debian" || true
 TMPDIR=/tmp update-initramfs -u
 if [ -d /sys/firmware/efi ]; then
   apt-get -y install grub-efi-amd64 efibootmgr
@@ -251,7 +261,7 @@ if [ -d /sys/firmware/efi ]; then
   grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=debian --recheck
 else
   apt-get -y install grub-pc
-  grub-install "$DISK"
+  grub-install "@DISK@"
 fi
 update-grub
 test -s /boot/grub/grub.cfg
@@ -260,67 +270,72 @@ test -s /boot/grub/grub.cfg
 install -d /etc/ssh/sshd_config.d
 umask 077
 cat >/etc/ssh/sshd_config.d/99-bootstrap.conf <<EOF
-PermitRootLogin ${PERMIT_ROOT_LOGIN}
-PasswordAuthentication ${PASSWORD_AUTH}
+PermitRootLogin ${PERMIT}
+PasswordAuthentication ${PASSAUTH}
 EOF
 install -d -m700 /root/.ssh; : >/root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys
 
-# Enhanced SSH key handling with proper validation and timeout
+# Hardened SSH key import with timeout and validation
 if [ -n "$SSH_IMPORT_IDS" ]; then
-  for import_id in $SSH_IMPORT_IDS; do
-    if timeout 30 ssh-import-id "$import_id"; then
-      [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully imported SSH key: $import_id" >&2
-    else
-      echo "[WARN] Failed to import SSH key: $import_id" >&2
-    fi
-  done
+  echo "[INFO] Importing SSH keys for root: $SSH_IMPORT_IDS"
+  timeout 30 ssh-import-id $SSH_IMPORT_IDS || echo "[WARN] ssh-import-id failed or timed out for root"
 fi
 
-if [ -n "$SSH_AUTHORIZED_KEYS" ]; then
-  printf '%s\n' $SSH_AUTHORIZED_KEYS >>/root/.ssh/authorized_keys
+# Add direct SSH keys if provided
+if [ -n "$AUTH_KEYS" ]; then
+  echo "[INFO] Adding direct SSH keys for root"
+  printf '%s\n' $AUTH_KEYS >>/root/.ssh/authorized_keys
 fi
 
-if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then 
-  for u in $SSH_AUTHORIZED_KEYS_URLS; do 
-    if timeout 30 curl -fsSL "$u" >>/root/.ssh/authorized_keys; then
-      [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully fetched SSH keys from: $u" >&2
+# Download SSH keys from URLs with timeout and validation
+if [ -n "$AUTH_URLS" ]; then
+  echo "[INFO] Downloading SSH keys from URLs for root"
+  for u in $AUTH_URLS; do 
+    if curl --connect-timeout 10 --max-time 30 -fsSL "$u" >>/root/.ssh/authorized_keys; then
+      echo "[INFO] Successfully downloaded keys from $u"
     else
-      echo "[WARN] Failed to fetch SSH keys from: $u" >&2
+      echo "[WARN] Failed to download keys from $u"
     fi
   done
 fi
 
 if [ -n "$NEW_USER" ]; then
+  echo "[INFO] Creating user: $NEW_USER"
   id "$NEW_USER" >/dev/null 2>&1 || adduser --disabled-password --gecos "" "$NEW_USER"
   [ "$NEW_USER_SUDO" = "1" ] && usermod -aG sudo "$NEW_USER"
   install -d -m700 "/home/$NEW_USER/.ssh"
   : >"/home/$NEW_USER/.ssh/authorized_keys"; chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
   chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
-  
+
+  # Hardened SSH key import for user
   if [ -n "$SSH_IMPORT_IDS" ]; then
-    for import_id in $SSH_IMPORT_IDS; do
-      if timeout 30 sudo -u "$NEW_USER" ssh-import-id "$import_id"; then
-        [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully imported SSH key for $NEW_USER: $import_id" >&2
+    echo "[INFO] Importing SSH keys for $NEW_USER: $SSH_IMPORT_IDS"
+    timeout 30 runuser -u "$NEW_USER" -- ssh-import-id $SSH_IMPORT_IDS || echo "[WARN] ssh-import-id failed or timed out for $NEW_USER"
+  fi
+  
+  if [ -n "$AUTH_KEYS" ]; then
+    echo "[INFO] Adding direct SSH keys for $NEW_USER"
+    printf '%s\n' $AUTH_KEYS >>"/home/$NEW_USER/.ssh/authorized_keys"
+  fi
+  
+  if [ -n "$AUTH_URLS" ]; then
+    echo "[INFO] Downloading SSH keys from URLs for $NEW_USER"
+    for u in $AUTH_URLS; do 
+      if curl --connect-timeout 10 --max-time 30 -fsSL "$u" >>"/home/$NEW_USER/.ssh/authorized_keys"; then
+        echo "[INFO] Successfully downloaded keys from $u for $NEW_USER"
       else
-        echo "[WARN] Failed to import SSH key for $NEW_USER: $import_id" >&2
+        echo "[WARN] Failed to download keys from $u for $NEW_USER"
       fi
     done
   fi
   
-  [ -n "$SSH_AUTHORIZED_KEYS" ] && printf '%s\n' $SSH_AUTHORIZED_KEYS >>"/home/$NEW_USER/.ssh/authorized_keys"
-  
-  if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then 
-    for u in $SSH_AUTHORIZED_KEYS_URLS; do 
-      if timeout 30 curl -fsSL "$u" >>"/home/$NEW_USER/.ssh/authorized_keys"; then
-        [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully fetched SSH keys for $NEW_USER from: $u" >&2
-      else
-        echo "[WARN] Failed to fetch SSH keys for $NEW_USER from: $u" >&2
-      fi
-    done
-  fi
+  # Ensure proper ownership
+  chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
 fi
 
-# cloud-init: only datasource list (doesn't override ssh)
+
+
+# cloud-init: only datasource list (doesn’t override ssh)
 mkdir -p /etc/cloud/cloud.cfg.d
 echo 'datasource_list: [ConfigDrive, NoCloud, Ec2]' >/etc/cloud/cloud.cfg.d/90-datasources.cfg
 
@@ -332,14 +347,18 @@ systemctl enable cloud-init cloud-config cloud-final cloud-init-local >/dev/null
 sshd -t
 test -s /boot/grub/grub.cfg
 ls -1 /boot/vmlinuz-* /boot/initrd.img-* >/dev/null
-zpool get -H -o value bootfs "$POOL_R" | grep -q "$POOL_R/ROOT/debian"
+zpool get -H -o value bootfs "$RP" | grep -q "$RP/ROOT/debian"
 echo "[OK] post-chroot done"
 EOS
 
-# SECURITY: Pass environment variables securely instead of using sed/perl injection
-export HOSTNAME TZ DISK POOL_R POOL_B ARC_BYTES=$((ARC_MAX_MB*1024*1024))
-export NEW_USER NEW_USER_SUDO SSH_IMPORT_IDS SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_URLS 
-export PERMIT_ROOT_LOGIN PASSWORD_AUTH DEBUG
+# Export all variables for secure environment passing
+export HOSTNAME TZ DISK POOL_R POOL_B ARC_BYTES NEW_USER NEW_USER_SUDO
+export SSH_IMPORT_IDS SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_URLS 
+export PERMIT_ROOT_LOGIN PASSWORD_AUTH
+
+# Calculate ARC bytes
+export ARC_BYTES=$((ARC_MAX_MB*1024*1024))
+
 ok "post-chroot prepared"
 
 # --- 6) run post-chroot ---
@@ -347,12 +366,9 @@ b "Finalize in chroot"
 for d in dev proc sys run; do mount --rbind "/$d" "/mnt/$d"; mount --make-rslave "/mnt/$d"; done
 mkdir -p /mnt/etc; [ -e /mnt/etc/resolv.conf ] || : >/mnt/etc/resolv.conf
 mount --bind /etc/resolv.conf /mnt/etc/resolv.conf
-
-# SECURITY: Execute chroot with environment variables instead of sed/perl injection
 chroot /mnt /bin/bash /root/post-chroot.sh
-
 chroot /mnt test -s /boot/grub/grub.cfg
-chroot /mnt command -v sshd >/dev/null
+chroot /mnt /bin/bash -lc 'command -v sshd && sshd -t'
 ok "Chroot finalize OK"
 
 # --- 7) teardown (unmount first, THEN set runtime mountpoints), export ---
@@ -360,9 +376,36 @@ b "Teardown + runtime mountpoints"
 umount -l /mnt/etc/resolv.conf 2>/dev/null || true
 for m in /mnt/dev/pts /mnt/dev /mnt/proc /mnt/sys /mnt/run; do umount -l "$m" 2>/dev/null || true; done
 
-# Unmount datasets cleanly
-zfs list -H -o name -r "$POOL_R" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null || true
-zfs list -H -o name -r "$POOL_B" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null || true
+# --- 7) teardown (unmount first, THEN set runtime mountpoints), export ---
+b "Teardown + runtime mountpoints"
+umount -l /mnt/etc/resolv.conf 2>/dev/null || true
+for m in /mnt/dev/pts /mnt/dev /mnt/proc /mnt/sys /mnt/run; do umount -l "$m" 2>/dev/null || true; done
+
+# Enhanced cleanup with retries and process termination
+for attempt in 1 2 3; do
+  [ "$DEBUG" = "1" ] && echo "[DEBUG] Cleanup attempt $attempt"
+  
+  # Kill any processes using /mnt
+  fuser -km /mnt 2>/dev/null || true
+  sleep 2
+  
+  # Unmount datasets cleanly with retries
+  if zfs list -H -o name -r "$POOL_R" 2>/dev/null | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null; then
+    [ "$DEBUG" = "1" ] && echo "[DEBUG] Root pool unmounted successfully"
+  fi
+  
+  if zfs list -H -o name -r "$POOL_B" 2>/dev/null | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null; then
+    [ "$DEBUG" = "1" ] && echo "[DEBUG] Boot pool unmounted successfully"
+  fi
+  
+  # Check if unmount was successful
+  if ! mountpoint -q /mnt 2>/dev/null; then
+    break
+  fi
+  
+  [ "$attempt" -eq 3 ] && echo "[WARN] Some filesystems may still be mounted"
+  sleep 2
+done
 
 # Flip mountpoints NOW (no remount attempts since nothing is mounted)
 for spec in \
