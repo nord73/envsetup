@@ -17,7 +17,7 @@ POOL_R="${POOL_R:-rpool}"
 POOL_B="${POOL_B:-bpool}"
 ARC_MAX_MB="${ARC_MAX_MB:-2048}"   # ZFS ARC cap
 ENCRYPT="${ENCRYPT:-no}"           # yes|no
-FORCE="${FORCE:-1}"
+FORCE="${FORCE:-0}"
 
 # SSH bootstrap
 NEW_USER="${NEW_USER:-}"           # e.g., ansible
