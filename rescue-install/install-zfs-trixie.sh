@@ -237,7 +237,7 @@ mkdir -p /mnt/etc; [ -e /mnt/etc/resolv.conf ] || : >/mnt/etc/resolv.conf
 mount --bind /etc/resolv.conf /mnt/etc/resolv.conf
 chroot /mnt /bin/bash /root/post-chroot.sh
 chroot /mnt test -s /boot/grub/grub.cfg
-chroot /mnt command -v sshd >/dev/null
+chroot /mnt /bin/bash -lc 'command -v sshd && sshd -t'
 ok "Chroot finalize OK"
 
 # --- 7) teardown (unmount first, THEN set runtime mountpoints), export ---
