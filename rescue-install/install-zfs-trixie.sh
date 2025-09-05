@@ -231,6 +231,15 @@ mountpoint -q /boot || zfs mount "$BP/BOOT/debian" || true
 TMPDIR=/tmp update-initramfs -u
 
 # GRUB
+apt-get install -y grub-common
+mkdir -p /etc/default
+[ -f /etc/default/grub ] || cat >/etc/default/grub <<'EOF'
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR=Debian
+GRUB_CMDLINE_LINUX=""
+GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+EOF
 sed -ri "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"root=ZFS=$RP/ROOT/debian\"|" /etc/default/grub
 grep -q '^GRUB_PRELOAD_MODULES' /etc/default/grub || echo 'GRUB_PRELOAD_MODULES="zfs"' >> /etc/default/grub
 
