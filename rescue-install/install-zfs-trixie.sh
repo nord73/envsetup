@@ -297,6 +297,7 @@ ok "Chroot finalize OK."
 # --- Teardown ---
 say "Unmounting and exporting pools…"
 cd /
+lsof +f -- /mnt | awk 'NR>1{print $2}' | sort -u | xargs -r kill -9
 umount -l /mnt/etc/resolv.conf 2>/dev/null || true
 for m in /mnt/dev/pts /mnt/dev /mnt/proc /mnt/sys /mnt/run; do umount -l "$m" 2>/dev/null || true; done
 for ds in "$POOL_R/var/lib/mysql" "$POOL_R/var/lib" "$POOL_R/var/vmail" "$POOL_R/var" "$POOL_R/home" "$POOL_R/srv" "$POOL_B/BOOT/debian" "$POOL_R/ROOT/debian"; do
