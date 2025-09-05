@@ -174,15 +174,20 @@ trap 'echo "[FAIL] line $LINENO"; exit 1' ERR
 
 # Environment variables passed securely from parent
 # No @VARIABLE@ templating - eliminates injection vulnerability
+HN="$HOSTNAME"; TZ="$TZ"; DISK="$DISK"; RP="$POOL_R"; BP="$POOL_B"
+ARC_BYTES="$ARC_BYTES"
+NEW_USER="$NEW_USER"; NEW_USER_SUDO="$NEW_USER_SUDO"
+SSH_IMPORT_IDS="$SSH_IMPORT_IDS"; AUTH_KEYS="$SSH_AUTHORIZED_KEYS"; AUTH_URLS="$SSH_AUTHORIZED_KEYS_URLS"
+PERMIT="$PERMIT_ROOT_LOGIN"; PASSAUTH="$PASSWORD_AUTH"
 
 install -d -m0755 /var/cache/apt/archives/partial /var/lib/apt/lists/partial /var/lib/dpkg/updates /var/log/apt
 [ -s /var/lib/dpkg/status ] || :> /var/lib/dpkg/status
 
-echo "$HOSTNAME" >/etc/hostname
+echo "$HN" >/etc/hostname
 ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
-printf "127.0.0.1 localhost\n127.0.1.1 $HOSTNAME\n" >/etc/hosts
+printf "127.0.0.1 localhost\n127.0.1.1 $HN\n" >/etc/hosts
 
-hostname "$HOSTNAME" || true
+hostname "$HN" || true
 grep -q '\<rescue\>' /etc/hosts || printf "127.0.0.1 rescue\n" >> /etc/hosts
 
 cat >/etc/apt/sources.list <<SL
@@ -203,17 +208,17 @@ locale-gen >/dev/null 2>&1 || true
 command -v update-locale >/dev/null 2>&1 && update-locale LANG=en_US.UTF-8 || true
 
 # ensure RW env + tmp
-zfs set readonly=off "$POOL_R/ROOT/debian" >/dev/null 2>&1 || true
-zfs set readonly=off "$POOL_R/var"         >/dev/null 2>&1 || true
+zfs set readonly=off "$RP/ROOT/debian" >/dev/null 2>&1 || true
+zfs set readonly=off "$RP/var"         >/dev/null 2>&1 || true
 
 mount -o remount,rw / || true
 install -d -m1777 /var/tmp /tmp
 
 # hostid + cache + bootfs
 command -v zgenhostid >/dev/null 2>&1 && zgenhostid "$(hostid)" || true
-zpool set cachefile=/etc/zfs/zpool.cache "$POOL_R" || true
-zpool set cachefile=/etc/zfs/zpool.cache "$POOL_B" || true
-zpool set bootfs="$POOL_R/ROOT/debian" "$POOL_R" || true
+zpool set cachefile=/etc/zfs/zpool.cache "$RP" || true
+zpool set cachefile=/etc/zfs/zpool.cache "$BP" || true
+zpool set bootfs="$RP/ROOT/debian" "$RP" || true
 
 # import policy for initramfs (safe; no -f)
 cat >/etc/default/zfs <<ZDF
@@ -235,11 +240,11 @@ GRUB_DISTRIBUTOR=Debian
 GRUB_CMDLINE_LINUX=""
 GRUB_CMDLINE_LINUX_DEFAULT="quiet"
 G
-sed -ri "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"root=ZFS=$POOL_R/ROOT/debian rootdelay=5\"|" /etc/default/grub
+sed -ri "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"root=ZFS=$RP/ROOT/debian rootdelay=5\"|" /etc/default/grub
 grep -q '^GRUB_PRELOAD_MODULES' /etc/default/grub || echo 'GRUB_PRELOAD_MODULES="zfs"' >> /etc/default/grub
 
 # build initrd + install GRUB (BIOS/UEFI)
-mountpoint -q /boot || zfs mount "$POOL_B/BOOT/debian" || true
+mountpoint -q /boot || zfs mount "$BP/BOOT/debian" || true
 TMPDIR=/tmp update-initramfs -u
 if [ -d /sys/firmware/efi ]; then
   apt-get -y install grub-efi-amd64 efibootmgr
@@ -256,30 +261,28 @@ test -s /boot/grub/grub.cfg
 install -d /etc/ssh/sshd_config.d
 umask 077
 cat >/etc/ssh/sshd_config.d/99-bootstrap.conf <<EOF
-PermitRootLogin ${PERMIT_ROOT_LOGIN}
-PasswordAuthentication ${PASSWORD_AUTH}
+PermitRootLogin ${PERMIT}
+PasswordAuthentication ${PASSAUTH}
 EOF
 install -d -m700 /root/.ssh; : >/root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys
 
 # Enhanced SSH key import with timeout and validation
 if [ -n "$SSH_IMPORT_IDS" ]; then
-  # Import with timeout and retry logic
   if ! timeout 30 ssh-import-id $SSH_IMPORT_IDS 2>/dev/null; then
     echo "[WARN] ssh-import-id failed or timed out for root" >&2
   fi
 fi
 
 # Process direct SSH keys
-if [ -n "$SSH_AUTHORIZED_KEYS" ]; then
-  # Validate and add each key
-  echo "$SSH_AUTHORIZED_KEYS" | while IFS= read -r key; do
+if [ -n "$AUTH_KEYS" ]; then
+  echo "$AUTH_KEYS" | while IFS= read -r key; do
     [ -n "$key" ] && echo "$key" >> /root/.ssh/authorized_keys
   done
 fi
 
 # Process SSH key URLs with timeout
-if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then
-  for url in $SSH_AUTHORIZED_KEYS_URLS; do
+if [ -n "$AUTH_URLS" ]; then
+  for url in $AUTH_URLS; do
     if ! timeout 15 curl -fsSL "$url" >> /root/.ssh/authorized_keys 2>/dev/null; then
       echo "[WARN] Failed to fetch SSH keys from $url" >&2
     fi
@@ -302,15 +305,15 @@ if [ -n "$NEW_USER" ]; then
   fi
   
   # Process direct SSH keys for user
-  if [ -n "$SSH_AUTHORIZED_KEYS" ]; then
-    echo "$SSH_AUTHORIZED_KEYS" | while IFS= read -r key; do
+  if [ -n "$AUTH_KEYS" ]; then
+    echo "$AUTH_KEYS" | while IFS= read -r key; do
       [ -n "$key" ] && echo "$key" >> "/home/$NEW_USER/.ssh/authorized_keys"
     done
   fi
   
   # Process SSH key URLs for user
-  if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then
-    for url in $SSH_AUTHORIZED_KEYS_URLS; do
+  if [ -n "$AUTH_URLS" ]; then
+    for url in $AUTH_URLS; do
       if ! timeout 15 curl -fsSL "$url" >> "/home/$NEW_USER/.ssh/authorized_keys" 2>/dev/null; then
         echo "[WARN] Failed to fetch SSH keys from $url for $NEW_USER" >&2
       fi
@@ -318,7 +321,9 @@ if [ -n "$NEW_USER" ]; then
   fi
 fi
 
-# cloud-init: only datasource list (doesn't override ssh)
+
+
+# cloud-init: only datasource list (doesn’t override ssh)
 mkdir -p /etc/cloud/cloud.cfg.d
 echo 'datasource_list: [ConfigDrive, NoCloud, Ec2]' >/etc/cloud/cloud.cfg.d/90-datasources.cfg
 
@@ -326,16 +331,16 @@ echo 'datasource_list: [ConfigDrive, NoCloud, Ec2]' >/etc/cloud/cloud.cfg.d/90-d
 systemctl enable ssh zfs-import-cache zfs-import.target zfs-mount >/dev/null 2>&1 || true
 systemctl enable cloud-init cloud-config cloud-final cloud-init-local >/dev/null 2>&1 || true
 
-# sanity checks
+# sanity
 sshd -t
 test -s /boot/grub/grub.cfg
 ls -1 /boot/vmlinuz-* /boot/initrd.img-* >/dev/null
-zpool get -H -o value bootfs "$POOL_R" | grep -q "$POOL_R/ROOT/debian"
+zpool get -H -o value bootfs "$RP" | grep -q "$RP/ROOT/debian"
 echo "[OK] post-chroot done"
 EOS
 
-# Export variables for secure passing to chroot environment
-export HOSTNAME TZ DISK POOL_R POOL_B ARC_BYTES NEW_USER NEW_USER_SUDO 
+# Export variables for secure passing to chroot environment (eliminates sed/perl injection vulnerability)
+export HOSTNAME TZ DISK POOL_R POOL_B NEW_USER NEW_USER_SUDO 
 export SSH_IMPORT_IDS SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_URLS 
 export PERMIT_ROOT_LOGIN PASSWORD_AUTH
 # Calculate ARC_BYTES from ARC_MAX_MB
