@@ -4,7 +4,64 @@
 set -euo pipefail
 [ -f .env ] && set -a && . ./.env && set +a
 
+# DEBUG mode support
+DEBUG="${DEBUG:-0}"
+[ "$DEBUG" = "1" ] && set -x
+
+# Show help if requested
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  cat <<EOF
+Debian 13 (trixie) ZFS-on-root installer for rescue environments
+
+Usage: $0 [options]
+
+Environment variables:
+  DISK              Target disk (auto-detected if not set)
+  HOSTNAME          System hostname (default: mail1)
+  TZ                Timezone (default: Europe/Stockholm)
+  POOL_R            Root pool name (default: rpool)
+  POOL_B            Boot pool name (default: bpool)
+  ARC_MAX_MB        ZFS ARC max size in MB (default: 2048)
+  ENCRYPT           Enable encryption (yes|no, default: no)
+  FORCE             Skip confirmations (0|1, default: 0)
+  DEBUG             Enable debug mode (0|1, default: 0)
+  
+  NEW_USER          Create additional user
+  NEW_USER_SUDO     Give sudo access (0|1, default: 1)
+  SSH_IMPORT_IDS    SSH keys to import (e.g. "gh:username")
+  SSH_AUTHORIZED_KEYS    Direct SSH public keys
+  SSH_AUTHORIZED_KEYS_URLS    URLs to fetch SSH keys from
+  PERMIT_ROOT_LOGIN SSH root login policy (default: prohibit-password)
+  PASSWORD_AUTH     Enable password auth (yes|no, default: no)
+
+Options:
+  -h, --help        Show this help
+  
+Examples:
+  # Basic install with auto-detected disk
+  $0
+  
+  # Install with specific disk and user
+  DISK=/dev/nvme0n1 NEW_USER=admin SSH_IMPORT_IDS="gh:myuser" $0
+  
+  # Install with debug mode
+  DEBUG=1 FORCE=1 $0
+
+EOF
+  exit 0
+fi
+
 # ---------- CONFIG ----------
+# Auto-detect disk if not specified
+if [ -z "${DISK:-}" ]; then
+  # Try to find the largest disk that's not mounted
+  DISK=$(lsblk -ndbo NAME,SIZE,TYPE | awk '$3=="disk"{print "/dev/"$1" "$2}' | sort -k2 -hr | head -1 | cut -d' ' -f1)
+  if [ -n "$DISK" ]; then 
+    say "Auto-detected disk: $DISK"
+  else
+    die "Could not auto-detect disk. Please set DISK variable."
+  fi
+fi
 DISK="${DISK:-/dev/sda}"
 HOSTNAME="${HOSTNAME:-mail1}"
 TZ="${TZ:-Europe/Stockholm}"
@@ -28,17 +85,45 @@ say(){ echo -e "\033[1;34m[INFO]\033[0m $*"; }
 ok(){  echo -e "\033[1;32m[OK]\033[0m  $*"; }
 warn(){ echo -e "\033[1;33m[WARN]\033[0m $*"; }
 die(){ echo -e "\033[1;31m[FAIL]\033[0m $*"; exit 1; }
+debug(){ 
+  if [ "$DEBUG" = "1" ]; then
+    echo -e "\033[1;35m[DEBUG]\033[0m $*"
+  fi
+}
 confirm(){ [ "$FORCE" = "1" ] && return 0; read -r -p "$1 [y/N]: " a; [[ "$a" =~ ^[Yy]$ ]]; }
 
 req(){ command -v "$1" >/dev/null 2>&1 || die "missing tool: $1"; }
+
+# Validate requirements and environment
+debug "Checking requirements and environment"
+for tool in sgdisk zpool zfs debootstrap chroot; do
+  req "$tool"
+done
 
 BOOTLOADER=bios; [ -d /sys/firmware/efi ] && BOOTLOADER=uefi
 [ "$(id -u)" -eq 0 ] || die "run as root"
 [ -b "$DISK" ] || die "disk $DISK not found"
 
+# Validate disk is not mounted
+if findmnt "$DISK"* >/dev/null 2>&1; then
+  warn "Disk $DISK has mounted partitions"
+  findmnt "$DISK"*
+  confirm "Continue anyway?" || die "aborted"
+fi
+
 say "Rescue boot mode: $BOOTLOADER"
+debug "Configuration: DISK=$DISK, HOSTNAME=$HOSTNAME, TZ=$TZ"
+debug "Pools: $POOL_R (root), $POOL_B (boot), ARC_MAX=${ARC_MAX_MB}MB"
+debug "Encryption: $ENCRYPT, Force: $FORCE, Debug: $DEBUG"
+[ -n "$NEW_USER" ] && debug "User: $NEW_USER (sudo=$NEW_USER_SUDO)"
+
 say "This will WIPE $DISK and install Debian 13 on ZFS-root."
-confirm "Proceed on $DISK?" || die "aborted"
+if [ "$DEBUG" = "1" ]; then
+  echo "Press Enter to continue or Ctrl+C to abort..."
+  read -r
+else
+  confirm "Proceed on $DISK?" || die "aborted"
+fi
 
 # ----- Rescue prereqs (fix live-initramfs breakage) -----
 say "Installing rescue prerequisites…"
@@ -76,18 +161,20 @@ done
 
 # ----- Partition disk -----
 say "Partitioning $DISK…"
+debug "Creating partition table and aligning partitions optimally"
 sgdisk -Z "$DISK"
 if [ "$BOOTLOADER" = "uefi" ]; then
-  sgdisk -n1:1M:+1G -t1:EF00 "$DISK"
-  sgdisk -n2:0:+2G  -t2:BF01 "$DISK"
-  sgdisk -n3:0:0    -t3:BF01 "$DISK"
+  # Align to 1MiB boundaries for optimal performance
+  sgdisk -n1:2048:+1G -t1:EF00 "$DISK"   # EFI System Partition
+  sgdisk -n2:0:+2G   -t2:BF01 "$DISK"    # Boot pool
+  sgdisk -n3:0:0     -t3:BF01 "$DISK"    # Root pool
   mkfs.vfat -F32 "${DISK}1"
 else
-  sgdisk -n1:1M:+1M -t1:EF02 "$DISK"  # BIOS-boot
-  sgdisk -n2:0:+2G  -t2:BF01 "$DISK"
-  sgdisk -n3:0:0    -t3:BF01 "$DISK"
+  sgdisk -n1:2048:+1M -t1:EF02 "$DISK"   # BIOS-boot (aligned to 1MiB)
+  sgdisk -n2:0:+2G    -t2:BF01 "$DISK"   # Boot pool
+  sgdisk -n3:0:0      -t3:BF01 "$DISK"   # Root pool
 fi
-ok "Disk partitioned."
+ok "Disk partitioned with optimal alignment."
 
 # ----- Create pools -----
 say "Creating ZFS pools…"
@@ -155,14 +242,18 @@ cat > /mnt/root/post-chroot.sh <<'EOS'
 set -euo pipefail
 trap 'echo "[FAIL] line $LINENO"; exit 1' ERR
 
-HN="@HOSTNAME@"; TZ="@TZ@"; DISK="@DISK@"; RP="@POOL_R@"; BP="@POOL_B@"
-ARC_MB=@ARC_MAX_MB@
-NEW_USER='@NEW_USER@'; NEW_USER_SUDO='@NEW_USER_SUDO@'
-SSH_IMPORT_IDS='@SSH_IMPORT_IDS@'
-SSH_AUTHORIZED_KEYS='@SSH_AUTHORIZED_KEYS@'
-SSH_AUTHORIZED_KEYS_URLS='@SSH_AUTHORIZED_KEYS_URLS@'
-PERMIT_ROOT_LOGIN='@PERMIT_ROOT_LOGIN@'
-PASSWORD_AUTH='@PASSWORD_AUTH@'
+# Environment variables passed from host
+HN="${HOSTNAME}"; TZ="${TZ}"; DISK="${DISK}"; RP="${POOL_R}"; BP="${POOL_B}"
+ARC_MB="${ARC_MAX_MB}"
+NEW_USER="${NEW_USER}"; NEW_USER_SUDO="${NEW_USER_SUDO}"
+SSH_IMPORT_IDS="${SSH_IMPORT_IDS}"
+SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS}"
+SSH_AUTHORIZED_KEYS_URLS="${SSH_AUTHORIZED_KEYS_URLS}"
+PERMIT_ROOT_LOGIN="${PERMIT_ROOT_LOGIN}"
+PASSWORD_AUTH="${PASSWORD_AUTH}"
+DEBUG="${DEBUG:-0}"
+
+[ "$DEBUG" = "1" ] && set -x
 
 # In target?
 findmnt -no SOURCE / | grep -q "${RP}/ROOT/debian" || { echo "Not in target root"; exit 1; }
@@ -230,7 +321,7 @@ if [ -d /sys/firmware/efi ]; then
   grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=debian --recheck
 else
   apt-get install -y grub-pc
-  grub-install "@DISK@"
+  grub-install "$DISK"
 fi
 update-grub
 test -s /boot/grub/grub.cfg
@@ -254,12 +345,37 @@ else
   echo "PermitRootLogin ${PERMIT_ROOT_LOGIN}" >> "$sshd_cfg"
 fi
 
+# Hardened SSH key import for root
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 touch /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys
-[ -n "$SSH_IMPORT_IDS" ] && ssh-import-id $SSH_IMPORT_IDS || true
-[ -n "$SSH_AUTHORIZED_KEYS" ] && printf '%s\n' $SSH_AUTHORIZED_KEYS >> /root/.ssh/authorized_keys
+
+# Import SSH keys with validation
+if [ -n "$SSH_IMPORT_IDS" ]; then
+  [ "$DEBUG" = "1" ] && echo "[DEBUG] Importing SSH keys: $SSH_IMPORT_IDS"
+  ssh-import-id $SSH_IMPORT_IDS || { echo "[WARN] SSH key import failed"; }
+fi
+
+if [ -n "$SSH_AUTHORIZED_KEYS" ]; then
+  [ "$DEBUG" = "1" ] && echo "[DEBUG] Adding direct SSH keys"
+  printf '%s\n' $SSH_AUTHORIZED_KEYS >> /root/.ssh/authorized_keys
+fi
+
 if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then
-  for u in $SSH_AUTHORIZED_KEYS_URLS; do curl -fsSL "$u" >> /root/.ssh/authorized_keys || true; done
+  [ "$DEBUG" = "1" ] && echo "[DEBUG] Fetching SSH keys from URLs: $SSH_AUTHORIZED_KEYS_URLS"
+  for u in $SSH_AUTHORIZED_KEYS_URLS; do 
+    if curl -fsSL --max-time 10 "$u" >> /root/.ssh/authorized_keys; then
+      [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully fetched keys from $u"
+    else
+      echo "[WARN] Failed to fetch SSH keys from $u"
+    fi
+  done
+fi
+
+# Validate authorized_keys file format
+if [ -s /root/.ssh/authorized_keys ]; then
+  if ! ssh-keygen -l -f /root/.ssh/authorized_keys >/dev/null 2>&1; then
+    echo "[WARN] Invalid SSH keys detected in authorized_keys"
+  fi
 fi
 
 if [ -n "$NEW_USER" ]; then
@@ -269,11 +385,38 @@ if [ -n "$NEW_USER" ]; then
   touch "/home/$NEW_USER/.ssh/authorized_keys"
   chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
   chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
-  [ -n "$SSH_IMPORT_IDS" ] && sudo -u "$NEW_USER" ssh-import-id $SSH_IMPORT_IDS || true
-  [ -n "$SSH_AUTHORIZED_KEYS" ] && printf '%s\n' $SSH_AUTHORIZED_KEYS >> "/home/$NEW_USER/.ssh/authorized_keys"
-  if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then
-    for u in $SSH_AUTHORIZED_KEYS_URLS; do curl -fsSL "$u" >> "/home/$NEW_USER/.ssh/authorized_keys" || true; done
+  
+  # Import SSH keys with validation for user
+  if [ -n "$SSH_IMPORT_IDS" ]; then
+    [ "$DEBUG" = "1" ] && echo "[DEBUG] Importing SSH keys for user $NEW_USER: $SSH_IMPORT_IDS"
+    sudo -u "$NEW_USER" ssh-import-id $SSH_IMPORT_IDS || { echo "[WARN] SSH key import failed for user $NEW_USER"; }
   fi
+  
+  if [ -n "$SSH_AUTHORIZED_KEYS" ]; then
+    [ "$DEBUG" = "1" ] && echo "[DEBUG] Adding direct SSH keys for user $NEW_USER"
+    printf '%s\n' $SSH_AUTHORIZED_KEYS >> "/home/$NEW_USER/.ssh/authorized_keys"
+  fi
+  
+  if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then
+    [ "$DEBUG" = "1" ] && echo "[DEBUG] Fetching SSH keys from URLs for user $NEW_USER: $SSH_AUTHORIZED_KEYS_URLS"
+    for u in $SSH_AUTHORIZED_KEYS_URLS; do 
+      if curl -fsSL --max-time 10 "$u" >> "/home/$NEW_USER/.ssh/authorized_keys"; then
+        [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully fetched keys from $u for user $NEW_USER"
+      else
+        echo "[WARN] Failed to fetch SSH keys from $u for user $NEW_USER"
+      fi
+    done
+  fi
+  
+  # Validate user's authorized_keys file format
+  if [ -s "/home/$NEW_USER/.ssh/authorized_keys" ]; then
+    if ! sudo -u "$NEW_USER" ssh-keygen -l -f "/home/$NEW_USER/.ssh/authorized_keys" >/dev/null 2>&1; then
+      echo "[WARN] Invalid SSH keys detected in authorized_keys for user $NEW_USER"
+    fi
+  fi
+  
+  # Fix ownership after operations
+  chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
 fi
 
 # cloud-init
@@ -286,20 +429,11 @@ systemctl enable cloud-init cloud-config cloud-final cloud-init-local >/dev/null
 echo "[OK] post-chroot complete"
 EOS
 
-# Inject vars
-sed -i "s|@HOSTNAME@|$HOSTNAME|g"              /mnt/root/post-chroot.sh
-sed -i "s|@TZ@|$TZ|g"                          /mnt/root/post-chroot.sh
-sed -i "s|@DISK@|$DISK|g"                      /mnt/root/post-chroot.sh
-sed -i "s|@POOL_R@|$POOL_R|g"                  /mnt/root/post-chroot.sh
-sed -i "s|@POOL_B@|$POOL_B|g"                  /mnt/root/post-chroot.sh
-sed -i "s|@ARC_MAX_MB@|$ARC_MAX_MB|g"          /mnt/root/post-chroot.sh
-sed -i "s|@NEW_USER@|$NEW_USER|g"              /mnt/root/post-chroot.sh
-sed -i "s|@NEW_USER_SUDO@|$NEW_USER_SUDO|g"    /mnt/root/post-chroot.sh
-sed -i "s|@SSH_IMPORT_IDS@|$SSH_IMPORT_IDS|g"  /mnt/root/post-chroot.sh
-perl -0777 -pe 's/\@SSH_AUTHORIZED_KEYS\@/'"$(printf %s "$SSH_AUTHORIZED_KEYS" | sed 's/[\/&]/\\&/g')"'/g' -i /mnt/root/post-chroot.sh
-sed -i "s|@SSH_AUTHORIZED_KEYS_URLS@|$SSH_AUTHORIZED_KEYS_URLS|g" /mnt/root/post-chroot.sh
-sed -i "s|@PERMIT_ROOT_LOGIN@|$PERMIT_ROOT_LOGIN|g"  /mnt/root/post-chroot.sh
-sed -i "s|@PASSWORD_AUTH@|$PASSWORD_AUTH|g"          /mnt/root/post-chroot.sh
+# Export environment variables for chroot
+export HOSTNAME TZ DISK POOL_R POOL_B ARC_MAX_MB NEW_USER NEW_USER_SUDO 
+export SSH_IMPORT_IDS SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_URLS 
+export PERMIT_ROOT_LOGIN PASSWORD_AUTH DEBUG
+
 ok "post-chroot prepared."
 
 # ----- Enter chroot -----
@@ -319,20 +453,63 @@ ok "Chroot finalize OK."
 say "Unmounting and exporting pools…"
 cd /
 
-# kill anything still in /mnt to avoid busy exports
-if command -v lsof >/dev/null 2>&1; then
-  lsof +f -- /mnt | awk 'NR>1{print $2}' | sort -u | xargs -r kill -9
+# Robust cleanup function
+cleanup_mounts() {
+  local retries=3
+  local attempt=1
+  
+  # Kill anything still in /mnt to avoid busy exports
+  debug "Killing processes using /mnt"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof +f -- /mnt 2>/dev/null | awk 'NR>1{print $2}' | sort -u | xargs -r kill -TERM 2>/dev/null || true
+    sleep 2
+    lsof +f -- /mnt 2>/dev/null | awk 'NR>1{print $2}' | sort -u | xargs -r kill -KILL 2>/dev/null || true
+  fi
+
+  # Unmount bind mounts first
+  debug "Unmounting bind mounts"
+  umount -l /mnt/etc/resolv.conf 2>/dev/null || true
+  for m in /mnt/dev/pts /mnt/dev /mnt/proc /mnt/sys /mnt/run; do 
+    umount -l "$m" 2>/dev/null || true
+  done
+  
+  # Unmount ZFS datasets (deepest-first) with retries
+  debug "Unmounting ZFS datasets"
+  while [ $attempt -le $retries ]; do
+    if zfs list -H -o name -r "$POOL_R" 2>/dev/null | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null; then
+      debug "Successfully unmounted $POOL_R datasets"
+      break
+    fi
+    warn "Failed to unmount $POOL_R datasets (attempt $attempt/$retries)"
+    sleep 2
+    ((attempt++))
+  done
+  
+  attempt=1
+  while [ $attempt -le $retries ]; do
+    if zfs list -H -o name -r "$POOL_B" 2>/dev/null | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null; then
+      debug "Successfully unmounted $POOL_B datasets"
+      break
+    fi
+    warn "Failed to unmount $POOL_B datasets (attempt $attempt/$retries)"
+    sleep 2
+    ((attempt++))
+  done
+  
+  # Force unmount any remaining mounts
+  findmnt -R /mnt -o TARGET 2>/dev/null | tac | xargs -r -n1 umount -lf 2>/dev/null || true
+}
+
+cleanup_mounts
+
+# Try exports with better error handling
+debug "Exporting ZFS pools"
+if ! zpool export "$POOL_B" 2>/dev/null; then
+  warn "could not export $POOL_B (will force import on boot)"
 fi
 
-umount -l /mnt/etc/resolv.conf 2>/dev/null || true
-for m in /mnt/dev/pts /mnt/dev /mnt/proc /mnt/sys /mnt/run; do umount -l "$m" 2>/dev/null || true; done
-# Unmount ZFS datasets (deepest-first)
-zfs list -H -o name -r "$POOL_R" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null || true
-zfs list -H -o name -r "$POOL_B" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null || true
-findmnt -R /mnt -o TARGET | tac | xargs -r -n1 umount -lf
-
-# Try exports; if still busy, warn (boot will succeed due to -f import in initramfs)
-zpool export -f "$POOL_B" 2>/dev/null || warn "could not export $POOL_B (ok)"
-zpool export -f "$POOL_R" 2>/dev/null || warn "could not export $POOL_R (ok)"
+if ! zpool export "$POOL_R" 2>/dev/null; then
+  warn "could not export $POOL_R (will force import on boot)"
+fi
 
 ok "Install complete. Reboot to disk."
