@@ -116,6 +116,9 @@ echo "$HN" >/etc/hostname
 ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
 printf "127.0.0.1 localhost\n127.0.1.1 $HN\n" >/etc/hosts
 
+hostname "$HN" || true
+grep -q '\<rescue\>' /etc/hosts || printf "127.0.0.1 rescue\n" >> /etc/hosts
+
 cat >/etc/apt/sources.list <<SL
 deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
 deb http://security.debian.org/debian-security trixie-security main contrib non-free non-free-firmware
@@ -134,8 +137,9 @@ locale-gen >/dev/null 2>&1 || true
 command -v update-locale >/dev/null 2>&1 && update-locale LANG=en_US.UTF-8 || true
 
 # ensure RW env + tmp
-zfs set readonly=off "$RP/ROOT/debian" || true
-zfs set readonly=off "$RP/var" || true
+zfs set readonly=off "$RP/ROOT/debian" >/dev/null 2>&1 || true
+zfs set readonly=off "$RP/var"         >/dev/null 2>&1 || true
+
 mount -o remount,rw / || true
 install -d -m1777 /var/tmp /tmp
 
@@ -190,7 +194,8 @@ PermitRootLogin ${PERMIT}
 PasswordAuthentication ${PASSAUTH}
 EOF
 install -d -m700 /root/.ssh; : >/root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys
-[ -n "$SSH_IMPORT_IDS" ] && ssh-import-id $SSH_IMPORT_IDS || true
+[ -n "$SSH_IMPORT_IDS" ] && ssh-import-id $SSH_IMPORT_IDS || echo "[WARN] ssh-import-id failed for root"
+
 [ -n "$AUTH_KEYS" ] && printf '%s\n' $AUTH_KEYS >>/root/.ssh/authorized_keys
 if [ -n "$AUTH_URLS" ]; then for u in $AUTH_URLS; do curl -fsSL "$u" >>/root/.ssh/authorized_keys || true; done; fi
 
@@ -200,10 +205,15 @@ if [ -n "$NEW_USER" ]; then
   install -d -m700 "/home/$NEW_USER/.ssh"
   : >"/home/$NEW_USER/.ssh/authorized_keys"; chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
   chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
-  [ -n "$SSH_IMPORT_IDS" ] && sudo -u "$NEW_USER" ssh-import-id $SSH_IMPORT_IDS || true
+
+  if [ -n "$SSH_IMPORT_IDS" ]; then
+    runuser -u "$NEW_USER" -- ssh-import-id $SSH_IMPORT_IDS || echo "[WARN] ssh-import-id failed for $NEW_USER"
+  fi
   [ -n "$AUTH_KEYS" ] && printf '%s\n' $AUTH_KEYS >>"/home/$NEW_USER/.ssh/authorized_keys"
   if [ -n "$AUTH_URLS" ]; then for u in $AUTH_URLS; do curl -fsSL "$u" >>"/home/$NEW_USER/.ssh/authorized_keys" || true; done; fi
 fi
+
+
 
 # cloud-init: only datasource list (doesn’t override ssh)
 mkdir -p /etc/cloud/cloud.cfg.d
