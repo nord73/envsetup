@@ -183,7 +183,16 @@ zpool set cachefile=/etc/zfs/zpool.cache "$RP" || true
 zpool set cachefile=/etc/zfs/zpool.cache "$BP" || true
 
 echo "options zfs zfs_arc_max=$((ARC_MB*1024*1024))" >/etc/modprobe.d/zfs.conf
-update-initramfs -u
+
+# ensure writable + temp dirs
+zfs set readonly=off @POOL_R@/ROOT/debian || true
+zfs set readonly=off @POOL_R@/var || true
+mount -o remount,rw / || true
+mkdir -p -m 1777 /var/tmp /tmp
+chmod 1777 /var/tmp /tmp
+# guarantee /boot is mounted while generating initrd
+mountpoint -q /boot || zfs mount @POOL_B@/BOOT/debian || true
+TMPDIR=/tmp update-initramfs -u
 
 sed -ri "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"root=ZFS=$RP/ROOT/debian\"|" /etc/default/grub
 grep -q '^GRUB_PRELOAD_MODULES' /etc/default/grub || echo 'GRUB_PRELOAD_MODULES="zfs"' >> /etc/default/grub
