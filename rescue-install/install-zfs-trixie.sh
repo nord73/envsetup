@@ -100,14 +100,19 @@ ok "Base system"
 
 # --- 5) post-chroot payload (NO mountpoint flips here) ---
 b "Prepare post-chroot"
+
+# Calculate ARC bytes for environment variable
+ARC_BYTES=$((ARC_MAX_MB*1024*1024))
+
 cat >/mnt/root/post-chroot.sh <<'EOS'
 set -Eeuo pipefail
 trap 'echo "[FAIL] line $LINENO"; exit 1' ERR
-HN="@HOSTNAME@"; TZ="@TZ@"; DISK="@DISK@"; RP="@POOL_R@"; BP="@POOL_B@"
-ARC_BYTES=@ARC_BYTES@
-NEW_USER='@NEW_USER@'; NEW_USER_SUDO='@NEW_USER_SUDO@'
-SSH_IMPORT_IDS='@SSH_IMPORT_IDS@'; AUTH_KEYS='@AUTH_KEYS@'; AUTH_URLS='@AUTH_URLS@'
-PERMIT='@PERMIT@'; PASSAUTH='@PASSAUTH@'
+HN="$HOSTNAME"; TZ="$TZ"; DISK="$DISK"; RP="$POOL_R"; BP="$POOL_B"
+ARC_BYTES="$ARC_BYTES"
+NEW_USER="$NEW_USER"; NEW_USER_SUDO="$NEW_USER_SUDO"
+SSH_IMPORT_IDS="$SSH_IMPORT_IDS"; AUTH_KEYS="$SSH_AUTHORIZED_KEYS"; AUTH_URLS="$SSH_AUTHORIZED_KEYS_URLS"
+PERMIT="$PERMIT_ROOT_LOGIN"; PASSAUTH="$PASSWORD_AUTH"
+
 
 install -d -m0755 /var/cache/apt/archives/partial /var/lib/apt/lists/partial /var/lib/dpkg/updates /var/log/apt
 [ -s /var/lib/dpkg/status ] || :> /var/lib/dpkg/status
@@ -181,7 +186,7 @@ if [ -d /sys/firmware/efi ]; then
   grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=debian --recheck
 else
   apt-get -y install grub-pc
-  grub-install "@DISK@"
+  grub-install "$DISK"
 fi
 update-grub
 test -s /boot/grub/grub.cfg
@@ -231,13 +236,11 @@ zpool get -H -o value bootfs "$RP" | grep -q "$RP/ROOT/debian"
 echo "[OK] post-chroot done"
 EOS
 
-# inject vars
-sed -i "s|@HOSTNAME@|$HOSTNAME|g; s|@TZ@|$TZ|g; s|@DISK@|$DISK|g; s|@POOL_R@|$POOL_R|g; s|@POOL_B@|$POOL_B|g" /mnt/root/post-chroot.sh
-sed -i "s|@ARC_BYTES@|$((ARC_MAX_MB*1024*1024))|g" /mnt/root/post-chroot.sh
-sed -i "s|@NEW_USER@|$NEW_USER|g; s|@NEW_USER_SUDO@|$NEW_USER_SUDO|g" /mnt/root/post-chroot.sh
-sed -i "s|@SSH_IMPORT_IDS@|$SSH_IMPORT_IDS|g" /mnt/root/post-chroot.sh
-perl -0777 -pe 's/\@AUTH_KEYS\@/'"$(printf %s "$SSH_AUTHORIZED_KEYS" | sed 's/[\/&]/\\&/g')"'/g' -i /mnt/root/post-chroot.sh
-sed -i "s|@AUTH_URLS@|$SSH_AUTHORIZED_KEYS_URLS|g; s|@PERMIT@|$PERMIT_ROOT_LOGIN|g; s|@PASSAUTH@|$PASSWORD_AUTH|g" /mnt/root/post-chroot.sh
+# Export environment variables for secure passing to chroot
+export HOSTNAME TZ DISK POOL_R POOL_B ARC_BYTES NEW_USER NEW_USER_SUDO 
+export SSH_IMPORT_IDS SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_URLS 
+export PERMIT_ROOT_LOGIN PASSWORD_AUTH
+
 ok "post-chroot prepared"
 
 # --- 6) run post-chroot ---

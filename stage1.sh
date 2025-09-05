@@ -1,23 +1,25 @@
 #!/bin/bash
 
+set -euo pipefail
+
 
 # Prepare ~/bin
 
-mkdir ~/bin
+mkdir -p ~/bin
 
 ## Install bin START ##
 
-mkdir ~/tmp && cd ~/tmp
+mkdir -p ~/tmp && cd ~/tmp || exit
 
 URL="marcosnils/bin"
 
 LATEST_RELEASE=$(curl -s https://api.github.com/repos/$URL/releases/latest)
-TAG_NAME=$(echo $LATEST_RELEASE | jq -r '.tag_name' | cut -c 2-)
+TAG_NAME=$(echo "$LATEST_RELEASE" | jq -r '.tag_name' | cut -c 2-)
 FILENAME="bin_${TAG_NAME}_linux_amd64"
 
-DOWNLOAD_URL=$(echo $LATEST_RELEASE | jq -r '.assets[] | select(.name | startswith("'"$FILENAME"'")) | .browser_download_url')
+DOWNLOAD_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[] | select(.name | startswith("'"$FILENAME"'")) | .browser_download_url')
 
-curl -s -L -o bin $DOWNLOAD_URL
+curl -s -L -o bin "$DOWNLOAD_URL"
 chmod +x ./bin
 
 ./bin install "$URL"
