@@ -92,28 +92,40 @@ zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
   -O mountpoint=none -O canmount=off "${ZFS_RPOOL_ENC[@]}" "$POOL_R" "${DISK}3"
 ok "Pools created."
 
-# --- Datasets (temp mount under /mnt) ---
-say "Creating datasets…"
-zfs create -o canmount=off -o mountpoint=none "$POOL_R/ROOT"
-zfs create "$POOL_R/ROOT/debian"
-zfs create -o canmount=off -o mountpoint=none "$POOL_B/BOOT"
-zfs create "$POOL_B/BOOT/debian"
+# ----- Datasets (idempotent) -----
+ensure_ds() {  # usage: ensure_ds <dataset> [zfs create options...]
+  local ds="$1"; shift || true
+  zfs list -H -o name "$ds" >/dev/null 2>&1 || zfs create "$@" "$ds"
+}
 
-zfs set mountpoint=/mnt      "$POOL_R/ROOT/debian"
-zfs set mountpoint=/mnt/boot "$POOL_B/BOOT/debian"
-zfs mount "$POOL_R/ROOT/debian"
-mkdir -p /mnt/boot && zfs mount "$POOL_B/BOOT/debian"
+ensure_ds "$POOL_R/ROOT"        -o canmount=off -o mountpoint=none
+ensure_ds "$POOL_R/ROOT/debian"
+ensure_ds "$POOL_B/BOOT"        -o canmount=off -o mountpoint=none
+ensure_ds "$POOL_B/BOOT/debian"
 
-# app datasets
-zfs create -o mountpoint=/mnt/var "$POOL_R/var"
-zfs create -o mountpoint=/mnt/var/lib "$POOL_R/var/lib"
-zfs create -o recordsize=16K -o logbias=latency -o primarycache=all -o mountpoint=/mnt/var/lib/mysql "$POOL_R/var/lib/mysql"
-zfs create -o recordsize=16K -o mountpoint=/mnt/var/vmail "$POOL_R/var/vmail"
-zfs create -o mountpoint=/mnt/home "$POOL_R/home"
-zfs create -o mountpoint=/mnt/srv  "$POOL_R/srv"
+ensure_ds "$POOL_R/var"                     -o mountpoint=/mnt/var
+ensure_ds "$POOL_R/var/lib"                 -o mountpoint=/mnt/var/lib
+ensure_ds "$POOL_R/var/lib/mysql"           -o recordsize=16K -o logbias=latency -o primarycache=all -o mountpoint=/mnt/var/lib/mysql
+ensure_ds "$POOL_R/var/vmail"               -o recordsize=16K -o mountpoint=/mnt/var/vmail
+ensure_ds "$POOL_R/home"                    -o mountpoint=/mnt/home
+ensure_ds "$POOL_R/srv"                     -o mountpoint=/mnt/srv
+
+# ----- Mount roots (idempotent) -----
+ensure_mount() { # usage: ensure_mount <dataset> <mountpoint>
+  local ds="$1" mp="$2"
+  zfs set mountpoint="$mp" "$ds"
+  if [ "$(zfs get -H -o value mounted "$ds")" != "yes" ]; then
+    zfs mount "$ds"
+  fi
+}
+
+ensure_mount "$POOL_R/ROOT/debian" /mnt
+mkdir -p /mnt/boot
+ensure_mount "$POOL_B/BOOT/debian" /mnt/boot
+
+# sanity
 zfs get -H -o value mounted "$POOL_R/ROOT/debian" | grep -q yes || die "root not mounted"
 zfs get -H -o value mounted "$POOL_B/BOOT/debian" | grep -q yes || die "boot not mounted"
-ok "Datasets mounted."
 
 # --- Bootstrap Trixie ---
 say "Bootstrapping Debian 13 (trixie)…"
