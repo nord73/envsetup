@@ -100,6 +100,7 @@ ok "Base system"
 
 # --- 5) post-chroot payload (NO mountpoint flips here) ---
 b "Prepare post-chroot"
+
 # Calculate ARC bytes for environment variable
 ARC_BYTES=$((ARC_MAX_MB*1024*1024))
 
@@ -111,6 +112,7 @@ ARC_BYTES="$ARC_BYTES"
 NEW_USER="$NEW_USER"; NEW_USER_SUDO="$NEW_USER_SUDO"
 SSH_IMPORT_IDS="$SSH_IMPORT_IDS"; AUTH_KEYS="$SSH_AUTHORIZED_KEYS"; AUTH_URLS="$SSH_AUTHORIZED_KEYS_URLS"
 PERMIT="$PERMIT_ROOT_LOGIN"; PASSAUTH="$PASSWORD_AUTH"
+
 
 install -d -m0755 /var/cache/apt/archives/partial /var/lib/apt/lists/partial /var/lib/dpkg/updates /var/log/apt
 [ -s /var/lib/dpkg/status ] || :> /var/lib/dpkg/status
@@ -238,6 +240,7 @@ EOS
 export HOSTNAME TZ DISK POOL_R POOL_B ARC_BYTES NEW_USER NEW_USER_SUDO 
 export SSH_IMPORT_IDS SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_URLS 
 export PERMIT_ROOT_LOGIN PASSWORD_AUTH
+
 ok "post-chroot prepared"
 
 # --- 6) run post-chroot ---
