@@ -52,6 +52,16 @@ EOF
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 
+apt-get install -y locales console-setup ca-certificates curl \
+  linux-image-amd64 linux-headers-amd64 \
+  zfs-dkms zfsutils-linux zfs-initramfs \
+  cloud-init openssh-server ssh-import-id sudo
+
+# locales 
+echo -e "en_US.UTF-8 UTF-8\nsv_SE.UTF-8 UTF-8" >> /etc/locale.gen
+locale-gen >/dev/null 2>&1 || true
+command -v update-locale >/dev/null 2>&1 && update-locale LANG=en_US.UTF-8 || true
+
 # Divert update-initramfs in rescue to avoid /run/live/medium writes
 if ! dpkg-divert --list | grep -q '/usr/sbin/update-initramfs$'; then
   dpkg-divert --local --rename --add /usr/sbin/update-initramfs || true
