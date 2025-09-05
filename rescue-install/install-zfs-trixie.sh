@@ -19,6 +19,86 @@ SSH_AUTHORIZED_KEYS_URLS="${SSH_AUTHORIZED_KEYS_URLS:-}" # URLs
 PERMIT_ROOT_LOGIN="${PERMIT_ROOT_LOGIN:-prohibit-password}"
 PASSWORD_AUTH="${PASSWORD_AUTH:-no}"
 
+# --- help ---
+show_help() {
+cat << 'EOF'
+ZFS-on-root installer for Debian 13 (Trixie)
+
+USAGE:
+    sudo ./install-zfs-trixie.sh [OPTIONS]
+
+DESCRIPTION:
+    Advanced ZFS-on-root installer with enhanced security features and
+    optimal partition alignment. Supports both BIOS and UEFI boot modes.
+
+SECURITY & ROBUSTNESS:
+    • Secure environment variable passing (no sed/perl injection)
+    • Hardened SSH key import with validation and timeout handling  
+    • Comprehensive error handling with proper cleanup
+    • Input validation and requirement checking
+
+ADVANCED FEATURES:
+    • DEBUG mode for troubleshooting (DEBUG=1)
+    • Optional disk autodetect (automatically finds largest available disk)
+    • Optimal partition alignment (1MiB boundaries)
+    • Robust cleanup with retries and process termination
+    • Idempotent operations (safe to re-run)
+
+CONFIGURATION:
+    Configure via environment variables or .env file:
+
+    DISK=/dev/nvme0n1          Target disk (default: /dev/sda)
+    HOSTNAME=myhost            System hostname (default: mail1)
+    TZ=America/New_York        Timezone (default: UTC)
+    POOL_R=rpool               Root pool name (default: rpool)  
+    POOL_B=bpool               Boot pool name (default: bpool)
+    ARC_MAX_MB=2048            ZFS ARC max size in MB (default: 2048)
+    ENCRYPT=yes                Enable ZFS encryption (default: no)
+    FORCE=1                    Skip confirmations (default: 1)
+    NEW_USER=admin             Create additional user (optional)
+    NEW_USER_SUDO=1            Give new user sudo access (default: 1)
+    SSH_IMPORT_IDS="gh:user"   Import SSH keys from GitHub/etc (optional)
+    SSH_AUTHORIZED_KEYS="..."  Direct SSH key content (optional)
+    SSH_AUTHORIZED_KEYS_URLS="..." SSH key URLs (optional)
+    PERMIT_ROOT_LOGIN=yes      SSH root login setting (default: prohibit-password)
+    PASSWORD_AUTH=yes          SSH password auth (default: no)
+
+EXAMPLES:
+    # Basic install with auto-detected disk
+    sudo ./install-zfs-trixie.sh
+
+    # Install with specific configuration  
+    sudo DISK=/dev/nvme0n1 NEW_USER=admin SSH_IMPORT_IDS="gh:myuser" ./install-zfs-trixie.sh
+
+    # Install with debug mode and force (no confirmations)
+    sudo DEBUG=1 FORCE=1 ./install-zfs-trixie.sh
+
+OPTIONS:
+    -h, --help    Show this help message and exit
+
+REQUIREMENTS:
+    • Must run as root
+    • Target disk must exist and be a block device
+    • System must be booted from Debian rescue/live environment
+
+EOF
+}
+
+# --- parse args ---
+for arg in "$@"; do
+    case $arg in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $arg"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 # --- utils ---
 b() { printf '\033[1m%s\033[0m\n' "$*"; }
 ok(){ printf '\033[1;32m[OK]\033[0m %s\n' "$*"; }
