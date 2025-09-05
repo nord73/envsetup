@@ -1,73 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# DEBUG mode support
-DEBUG="${DEBUG:-0}"
-[ "$DEBUG" = "1" ] && set -x
-
-# Show help if requested
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-  cat <<EOF
-Debian 13 (trixie) ZFS-on-root installer for rescue environments
-
-Usage: $0 [options]
-
-Environment variables:
-  DISK              Target disk (auto-detected if not set)
-  HOSTNAME          System hostname (default: mail1)
-  TZ                Timezone (default: UTC)
-  POOL_R            Root pool name (default: rpool)
-  POOL_B            Boot pool name (default: bpool)
-  ARC_MAX_MB        ZFS ARC max size in MB (default: 2048)
-  ENCRYPT           Enable encryption (yes|no, default: no)
-  FORCE             Skip confirmations (0|1, default: 1)
-  DEBUG             Enable debug mode (0|1, default: 0)
-  
-  NEW_USER          Create additional user
-  NEW_USER_SUDO     Give sudo access (0|1, default: 1)
-  SSH_IMPORT_IDS    SSH keys to import (e.g. "gh:username")
-  SSH_AUTHORIZED_KEYS    Direct SSH public keys
-  SSH_AUTHORIZED_KEYS_URLS    URLs to fetch SSH keys from
-  PERMIT_ROOT_LOGIN SSH root login policy (default: prohibit-password)
-  PASSWORD_AUTH     Enable password auth (yes|no, default: no)
-
-Options:
-  -h, --help        Show this help
-  
-Examples:
-  # Basic install with auto-detected disk
-  $0
-  
-  # Install with specific disk and user
-  DISK=/dev/nvme0n1 NEW_USER=admin SSH_IMPORT_IDS="gh:myuser" $0
-  
-  # Install with debug mode
-  DEBUG=1 FORCE=1 $0
-
-EOF
-  exit 0
-fi
-
 # --- cfg (override via .env) ---
 [ -f .env ] && set -a && . ./.env && set +a
-
-# Auto-detect disk if not set
-auto_detect_disk() {
-  local candidates
-  candidates=$(lsblk -dn -o NAME,SIZE,TYPE | awk '$3=="disk" {print "/dev/"$1" "$2}' | sort -k2 -hr)
-  
-  if [ -n "$candidates" ]; then
-    local selected_disk
-    selected_disk=$(echo "$candidates" | head -1 | awk '{print $1}')
-    [ "$DEBUG" = "1" ] && echo "[DEBUG] Available disks: $candidates" >&2
-    [ "$DEBUG" = "1" ] && echo "[DEBUG] Auto-selected disk: $selected_disk" >&2
-    echo "$selected_disk"
-  else
-    echo "/dev/sda"  # fallback
-  fi
-}
-
-DISK="${DISK:-$(auto_detect_disk)}"
+DISK="${DISK:-/dev/sda}"
 HOSTNAME="${HOSTNAME:-mail1}"
 TZ="${TZ:-UTC}"
 POOL_R="${POOL_R:-rpool}"
@@ -91,11 +27,7 @@ ask(){ [ "$FORCE" = 1 ] && return 0; read -r -p "$1 [y/N]: " a; [[ $a =~ ^[Yy]$ 
 
 trap 'die "line $LINENO"' ERR
 [ "$(id -u)" -eq 0 ] || die "run as root"
-
-# Enhanced disk validation
-if [ ! -b "$DISK" ]; then
-  die "disk $DISK missing. Available disks: $(lsblk -dn -o NAME,SIZE,TYPE | awk '$3=="disk" {print "/dev/"$1" ("$2")"}')"
-fi
+[ -b "$DISK" ] || die "disk $DISK missing"
 
 BOOTMODE=bios; [ -d /sys/firmware/efi ] && BOOTMODE=uefi
 b "Rescue: $BOOTMODE  •  Will WIPE $DISK"; ask "Proceed?" || die "aborted"
@@ -166,14 +98,14 @@ debootstrap trixie /mnt http://deb.debian.org/debian/
 [ -x /mnt/bin/sh ] || die "bootstrap incomplete"
 ok "Base system"
 
-# --- 5) post-chroot payload (SECURE: no sed/perl injection) ---
+# --- 5) post-chroot payload (NO mountpoint flips here) ---
 b "Prepare post-chroot"
+# Calculate ARC bytes for environment variable
+ARC_BYTES=$((ARC_MAX_MB*1024*1024))
+
 cat >/mnt/root/post-chroot.sh <<'EOS'
 set -Eeuo pipefail
 trap 'echo "[FAIL] line $LINENO"; exit 1' ERR
-
-# Environment variables passed securely from parent
-# No @VARIABLE@ templating - eliminates injection vulnerability
 HN="$HOSTNAME"; TZ="$TZ"; DISK="$DISK"; RP="$POOL_R"; BP="$POOL_B"
 ARC_BYTES="$ARC_BYTES"
 NEW_USER="$NEW_USER"; NEW_USER_SUDO="$NEW_USER_SUDO"
@@ -265,31 +197,11 @@ PermitRootLogin ${PERMIT}
 PasswordAuthentication ${PASSAUTH}
 EOF
 install -d -m700 /root/.ssh; : >/root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys
+[ -n "$SSH_IMPORT_IDS" ] && ssh-import-id $SSH_IMPORT_IDS || echo "[WARN] ssh-import-id failed for root"
 
-# Enhanced SSH key import with timeout and validation
-if [ -n "$SSH_IMPORT_IDS" ]; then
-  if ! timeout 30 ssh-import-id $SSH_IMPORT_IDS 2>/dev/null; then
-    echo "[WARN] ssh-import-id failed or timed out for root" >&2
-  fi
-fi
+[ -n "$AUTH_KEYS" ] && printf '%s\n' $AUTH_KEYS >>/root/.ssh/authorized_keys
+if [ -n "$AUTH_URLS" ]; then for u in $AUTH_URLS; do curl -fsSL "$u" >>/root/.ssh/authorized_keys || true; done; fi
 
-# Process direct SSH keys
-if [ -n "$AUTH_KEYS" ]; then
-  echo "$AUTH_KEYS" | while IFS= read -r key; do
-    [ -n "$key" ] && echo "$key" >> /root/.ssh/authorized_keys
-  done
-fi
-
-# Process SSH key URLs with timeout
-if [ -n "$AUTH_URLS" ]; then
-  for url in $AUTH_URLS; do
-    if ! timeout 15 curl -fsSL "$url" >> /root/.ssh/authorized_keys 2>/dev/null; then
-      echo "[WARN] Failed to fetch SSH keys from $url" >&2
-    fi
-  done
-fi
-
-# Setup additional user with enhanced SSH handling
 if [ -n "$NEW_USER" ]; then
   id "$NEW_USER" >/dev/null 2>&1 || adduser --disabled-password --gecos "" "$NEW_USER"
   [ "$NEW_USER_SUDO" = "1" ] && usermod -aG sudo "$NEW_USER"
@@ -297,28 +209,11 @@ if [ -n "$NEW_USER" ]; then
   : >"/home/$NEW_USER/.ssh/authorized_keys"; chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
   chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
 
-  # Enhanced SSH import for user
   if [ -n "$SSH_IMPORT_IDS" ]; then
-    if ! timeout 30 runuser -u "$NEW_USER" -- ssh-import-id $SSH_IMPORT_IDS 2>/dev/null; then
-      echo "[WARN] ssh-import-id failed or timed out for $NEW_USER" >&2
-    fi
+    runuser -u "$NEW_USER" -- ssh-import-id $SSH_IMPORT_IDS || echo "[WARN] ssh-import-id failed for $NEW_USER"
   fi
-  
-  # Process direct SSH keys for user
-  if [ -n "$AUTH_KEYS" ]; then
-    echo "$AUTH_KEYS" | while IFS= read -r key; do
-      [ -n "$key" ] && echo "$key" >> "/home/$NEW_USER/.ssh/authorized_keys"
-    done
-  fi
-  
-  # Process SSH key URLs for user
-  if [ -n "$AUTH_URLS" ]; then
-    for url in $AUTH_URLS; do
-      if ! timeout 15 curl -fsSL "$url" >> "/home/$NEW_USER/.ssh/authorized_keys" 2>/dev/null; then
-        echo "[WARN] Failed to fetch SSH keys from $url for $NEW_USER" >&2
-      fi
-    done
-  fi
+  [ -n "$AUTH_KEYS" ] && printf '%s\n' $AUTH_KEYS >>"/home/$NEW_USER/.ssh/authorized_keys"
+  if [ -n "$AUTH_URLS" ]; then for u in $AUTH_URLS; do curl -fsSL "$u" >>"/home/$NEW_USER/.ssh/authorized_keys" || true; done; fi
 fi
 
 
@@ -339,25 +234,18 @@ zpool get -H -o value bootfs "$RP" | grep -q "$RP/ROOT/debian"
 echo "[OK] post-chroot done"
 EOS
 
-# Export variables for secure passing to chroot environment (eliminates sed/perl injection vulnerability)
-export HOSTNAME TZ DISK POOL_R POOL_B NEW_USER NEW_USER_SUDO 
+# Export environment variables for secure passing to chroot
+export HOSTNAME TZ DISK POOL_R POOL_B ARC_BYTES NEW_USER NEW_USER_SUDO 
 export SSH_IMPORT_IDS SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_URLS 
 export PERMIT_ROOT_LOGIN PASSWORD_AUTH
-# Calculate ARC_BYTES from ARC_MAX_MB
-export ARC_BYTES=$((ARC_MAX_MB*1024*1024))
-
 ok "post-chroot prepared"
 
-# --- 6) run post-chroot (SECURE: environment variables passed via export) ---
+# --- 6) run post-chroot ---
 b "Finalize in chroot"
 for d in dev proc sys run; do mount --rbind "/$d" "/mnt/$d"; mount --make-rslave "/mnt/$d"; done
 mkdir -p /mnt/etc; [ -e /mnt/etc/resolv.conf ] || : >/mnt/etc/resolv.conf
 mount --bind /etc/resolv.conf /mnt/etc/resolv.conf
-
-# Execute chroot with environment variables (eliminates sed/perl injection vulnerability)
 chroot /mnt /bin/bash /root/post-chroot.sh
-
-# Enhanced verification
 chroot /mnt test -s /boot/grub/grub.cfg
 chroot /mnt /bin/bash -lc 'command -v sshd && sshd -t'
 ok "Chroot finalize OK"
@@ -367,28 +255,9 @@ b "Teardown + runtime mountpoints"
 umount -l /mnt/etc/resolv.conf 2>/dev/null || true
 for m in /mnt/dev/pts /mnt/dev /mnt/proc /mnt/sys /mnt/run; do umount -l "$m" 2>/dev/null || true; done
 
-# Enhanced cleanup with retry logic
-cleanup_with_retry() {
-  local pool="$1"
-  local attempt=1
-  local max_attempts=3
-  
-  while [ $attempt -le $max_attempts ]; do
-    [ "$DEBUG" = "1" ] && echo "[DEBUG] Cleanup attempt $attempt for $pool" >&2
-    
-    # Unmount datasets cleanly with retry
-    if zfs list -H -o name -r "$pool" 2>/dev/null | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null; then
-      break
-    fi
-    
-    [ "$DEBUG" = "1" ] && echo "[DEBUG] Retry cleanup for $pool in 2 seconds..." >&2
-    sleep 2
-    attempt=$((attempt + 1))
-  done
-}
-
-cleanup_with_retry "$POOL_R"
-cleanup_with_retry "$POOL_B"
+# Unmount datasets cleanly
+zfs list -H -o name -r "$POOL_R" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null || true
+zfs list -H -o name -r "$POOL_B" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null || true
 
 # Flip mountpoints NOW (no remount attempts since nothing is mounted)
 for spec in \
@@ -405,31 +274,9 @@ for spec in \
 done
 ok "Mountpoints set for runtime"
 
-# Export pools (best-effort) with retry
-export_with_retry() {
-  local pool="$1"
-  local attempt=1
-  local max_attempts=3
-  
-  while [ $attempt -le $max_attempts ]; do
-    [ "$DEBUG" = "1" ] && echo "[DEBUG] Export attempt $attempt for $pool" >&2
-    
-    if zpool export -f "$pool" 2>/dev/null; then
-      [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully exported $pool" >&2
-      return 0
-    fi
-    
-    [ "$DEBUG" = "1" ] && echo "[DEBUG] Export retry for $pool in 1 second..." >&2
-    sleep 1
-    attempt=$((attempt + 1))
-  done
-  
-  echo "[WARN] Could not export $pool after $max_attempts attempts" >&2
-  return 1
-}
-
-export_with_retry "$POOL_B"
-export_with_retry "$POOL_R"
+# Export pools (best-effort)
+zpool export -f "$POOL_B" 2>/dev/null || true
+zpool export -f "$POOL_R" 2>/dev/null || true
 ok "Done. Reboot."
 
 echo "If initramfs prompts:  zpool import -N -R /root -d /dev/disk/by-id rpool && zfs mount -a && exit"
