@@ -26,7 +26,7 @@ PASSWORD_AUTH="${PASSWORD_AUTH:-no}"                         # yes|no
 
 say(){ echo -e "\033[1;34m[INFO]\033[0m $*"; }
 ok(){  echo -e "\033[1;32m[OK]\033[0m  $*"; }
-warn(){echo -e "\033[1;33m[WARN]\033[0m $*"; }
+warn(){ echo -e "\033[1;33m[WARN]\033[0m $*"; }
 die(){ echo -e "\033[1;31m[FAIL]\033[0m $*"; exit 1; }
 confirm(){ [ "$FORCE" = "1" ] && return 0; read -r -p "$1 [y/N]: " a; [[ "$a" =~ ^[Yy]$ ]]; }
 
