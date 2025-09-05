@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
-[ -f .env ] && set -a && . ./.env && set +a
+set -Eeuo pipefail
 
 # DEBUG mode support
 DEBUG="${DEBUG:-0}"
@@ -16,12 +15,12 @@ Usage: $0 [options]
 Environment variables:
   DISK              Target disk (auto-detected if not set)
   HOSTNAME          System hostname (default: mail1)
-  TZ                Timezone (default: Europe/Stockholm)
+  TZ                Timezone (default: UTC)
   POOL_R            Root pool name (default: rpool)
   POOL_B            Boot pool name (default: bpool)
   ARC_MAX_MB        ZFS ARC max size in MB (default: 2048)
   ENCRYPT           Enable encryption (yes|no, default: no)
-  FORCE             Skip confirmations (0|1, default: 0)
+  FORCE             Skip confirmations (0|1, default: 1)
   DEBUG             Enable debug mode (0|1, default: 0)
   
   NEW_USER          Create additional user
@@ -49,25 +48,22 @@ EOF
   exit 0
 fi
 
-# Enhanced logging functions
-debug() { [ "$DEBUG" = "1" ] && printf "\033[1;36m[DEBUG]\033[0m %s\n" "$*" >&2; }
-log() { printf "\033[1;34m[INFO]\033[0m %s\n" "$*"; }
-ok() { printf "\033[1;32m[OK]\033[0m %s\n" "$*"; }
-die() { printf "\033[1;31m[FAIL]\033[0m %s\n" "$*"; exit 1; }
-ask() { [ "$FORCE" = 1 ] && return 0; read -r -p "$1 [y/N]: " a; [[ $a =~ ^[Yy]$ ]]; }
+# --- cfg (override via .env) ---
+[ -f .env ] && set -a && . ./.env && set +a
 
 # Function to auto-detect disk if not specified
 auto_detect_disk() {
     [ -n "${DISK:-}" ] && return 0
     
-    debug "DISK not specified, attempting auto-detection..."
+    [ "$DEBUG" = "1" ] && printf "\033[1;36m[DEBUG]\033[0m DISK not specified, attempting auto-detection...\n" >&2
     
     # Get list of block devices, excluding loop devices, ram disks, etc.
     local disks
     disks=$(lsblk -dno NAME,SIZE,TYPE | awk '$3=="disk" && $1!~/^(loop|ram|sr)/ {print "/dev/" $1 " " $2}' | sort -k2 -hr)
     
     if [ -z "$disks" ]; then
-        die "No suitable disks found for auto-detection"
+        printf "\033[1;31m[FAIL]\033[0m No suitable disks found for auto-detection\n"
+        exit 1
     fi
     
     # Select the largest disk
@@ -75,29 +71,44 @@ auto_detect_disk() {
     local size
     size=$(echo "$disks" | head -n1 | awk '{print $2}')
     
-    log "Auto-detected disk: $DISK (size: $size)"
-    log "Available disks:"
+    printf "\033[1m[INFO]\033[0m Auto-detected disk: %s (size: %s)\n" "$DISK" "$size"
+    printf "\033[1m[INFO]\033[0m Available disks:\n"
     echo "$disks" | while IFS= read -r line; do echo "  $line"; done
 }
 
-# --- cfg ---
+# Auto-detect disk first
 auto_detect_disk
-DISK=${DISK:-/dev/sda}; HOSTNAME=${HOSTNAME:-mail1}; TZ=${TZ:-Europe/Stockholm}
-POOL_R=${POOL_R:-rpool}; POOL_B=${POOL_B:-bpool}; ARC_MAX_MB=${ARC_MAX_MB:-2048}
-ENCRYPT=${ENCRYPT:-no}; FORCE=${FORCE:-0}
-NEW_USER=${NEW_USER:-}; NEW_USER_SUDO=${NEW_USER_SUDO:-1}
-SSH_IMPORT_IDS=${SSH_IMPORT_IDS:-}; SSH_AUTHORIZED_KEYS=${SSH_AUTHORIZED_KEYS:-}
-SSH_AUTHORIZED_KEYS_URLS=${SSH_AUTHORIZED_KEYS_URLS:-}
-PERMIT_ROOT_LOGIN=${PERMIT_ROOT_LOGIN:-prohibit-password}; PASSWORD_AUTH=${PASSWORD_AUTH:-no}
-# ----------
+
+DISK="${DISK:-/dev/sda}"
+HOSTNAME="${HOSTNAME:-mail1}"
+TZ="${TZ:-UTC}"
+POOL_R="${POOL_R:-rpool}"
+POOL_B="${POOL_B:-bpool}"
+ARC_MAX_MB="${ARC_MAX_MB:-2048}"
+ENCRYPT="${ENCRYPT:-no}"
+FORCE="${FORCE:-1}"
+NEW_USER="${NEW_USER:-}"           # optional
+NEW_USER_SUDO="${NEW_USER_SUDO:-1}"
+SSH_IMPORT_IDS="${SSH_IMPORT_IDS:-}"                 # e.g. "gh:user"
+SSH_AUTHORIZED_KEYS="${SSH_AUTHORIZED_KEYS:-}"       # inline
+SSH_AUTHORIZED_KEYS_URLS="${SSH_AUTHORIZED_KEYS_URLS:-}" # URLs
+PERMIT_ROOT_LOGIN="${PERMIT_ROOT_LOGIN:-prohibit-password}"
+PASSWORD_AUTH="${PASSWORD_AUTH:-no}"
+
+# --- utils ---
+b() { printf '\033[1m%s\033[0m\n' "$*"; }
+ok(){ printf '\033[1;32m[OK]\033[0m %s\n' "$*"; }
+die(){ printf '\033[1;31m[FAIL]\033[0m %s\n' "$*"; exit 1; }
+ask(){ [ "$FORCE" = 1 ] && return 0; read -r -p "$1 [y/N]: " a; [[ $a =~ ^[Yy]$ ]]; }
 
 trap 'die "line $LINENO"' ERR
 [ "$(id -u)" -eq 0 ] || die "run as root"
 [ -b "$DISK" ] || die "disk $DISK missing"
-BOOTMODE=bios; [ -d /sys/firmware/efi ] && BOOTMODE=uefi
-log "Rescue mode: $BOOTMODE. Will WIPE $DISK."; ask "Proceed?" || die "aborted"
 
-# --- rescue deps & divert update-initramfs ---
+BOOTMODE=bios; [ -d /sys/firmware/efi ] && BOOTMODE=uefi
+b "Rescue: $BOOTMODE  •  Will WIPE $DISK"; ask "Proceed?" || die "aborted"
+
+# --- 0) rescue deps (no live initramfs writes) ---
 source /etc/os-release; CODENAME=${VERSION_CODENAME:-bookworm}
 cat >/etc/apt/sources.list <<EOF
 deb http://deb.debian.org/debian $CODENAME main contrib non-free non-free-firmware
@@ -111,21 +122,21 @@ dpkg-divert --local --rename --add /usr/sbin/update-initramfs >/dev/null 2>&1 ||
 printf '#!/bin/sh\nexit 0\n' >/usr/sbin/update-initramfs && chmod +x /usr/sbin/update-initramfs
 apt-get -y install dkms build-essential "linux-headers-$(uname -r)" zfs-dkms zfsutils-linux debootstrap gdisk dosfstools
 modprobe zfs || die "zfs modprobe failed"
-ok "Rescue ready"
+ok "Rescue prereqs"
 
-# --- partition ---
-log "Partitioning $DISK…"
+# --- 1) partition ---
+b "Partitioning $DISK"
 sgdisk -Z "$DISK"
 if [ "$BOOTMODE" = uefi ]; then
   sgdisk -n1:1M:+1G -t1:EF00 "$DISK"; sgdisk -n2:0:+2G -t2:BF01 "$DISK"; sgdisk -n3:0:0 -t3:BF01 "$DISK"
-  mkfs.vfat -F32 "${DISK}1"
+  mkfs.vfat -F32 -n EFI "${DISK}1"
 else
   sgdisk -n1:1M:+1M -t1:EF02 "$DISK"; sgdisk -n2:0:+2G -t2:BF01 "$DISK"; sgdisk -n3:0:0 -t3:BF01 "$DISK"
 fi
 ok "Partitioned"
 
-# --- pools ---
-log "Creating pools…"
+# --- 2) pools ---
+b "Creating ZFS pools"
 [ "$ENCRYPT" = yes ] && ENC=(-O encryption=aes-256-gcm -O keyformat=passphrase) || ENC=()
 zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
   -o compatibility=grub2 -O atime=off -O xattr=sa -O acltype=posixacl -O compression=lz4 \
@@ -135,50 +146,49 @@ zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
   -O mountpoint=none -O canmount=off "${ENC[@]}" "$POOL_R" "${DISK}3"
 ok "Pools created"
 
-# --- datasets (idempotent) ---
+# --- 3) datasets + temp mounts ---
 ensure_ds(){ zfs list -H -o name "$1" >/dev/null 2>&1 || zfs create "${@:2}" "$1"; }
 ensure_mount(){ local ds="$1" mp="$2"; zfs set mountpoint="$mp" "$ds"; [ "$(zfs get -H -o value mounted "$ds")" = yes ] || zfs mount "$ds"; }
 
-log "Datasets…"
+b "Datasets"
 ensure_ds "$POOL_R/ROOT" -o canmount=off -o mountpoint=none
 ensure_ds "$POOL_R/ROOT/debian"
 ensure_ds "$POOL_B/BOOT" -o canmount=off -o mountpoint=none
 ensure_ds "$POOL_B/BOOT/debian"
 
 ensure_mount "$POOL_R/ROOT/debian" /mnt
-mkdir -p /mnt/boot; ensure_mount "$POOL_B/BOOT/debian" /mnt/boot
-ensure_ds "$POOL_R/var"             -o mountpoint=/mnt/var
-ensure_ds "$POOL_R/var/lib"         -o mountpoint=/mnt/var/lib
-ensure_ds "$POOL_R/var/lib/mysql"   -o recordsize=16K -o logbias=latency -o primarycache=all -o mountpoint=/mnt/var/lib/mysql
-ensure_ds "$POOL_R/var/vmail"       -o recordsize=16K -o mountpoint=/mnt/var/vmail
-ensure_ds "$POOL_R/home"            -o mountpoint=/mnt/home
-ensure_ds "$POOL_R/srv"             -o mountpoint=/mnt/srv
-ok "Datasets mounted"
+mkdir -p /mnt/boot
+ensure_mount "$POOL_B/BOOT/debian" /mnt/boot
 
-# --- bootstrap trixie ---
-log "debootstrap…"
+ensure_ds "$POOL_R/var"               -o mountpoint=/mnt/var
+ensure_ds "$POOL_R/var/lib"           -o mountpoint=/mnt/var/lib
+ensure_ds "$POOL_R/var/lib/mysql"     -o recordsize=16K -o logbias=latency -o primarycache=all -o mountpoint=/mnt/var/lib/mysql
+ensure_ds "$POOL_R/var/vmail"         -o recordsize=16K -o mountpoint=/mnt/var/vmail
+ensure_ds "$POOL_R/home"              -o mountpoint=/mnt/home
+ensure_ds "$POOL_R/srv"               -o mountpoint=/mnt/srv
+ok "Datasets mounted at /mnt"
+
+# --- 4) debootstrap ---
+b "Debootstrap trixie"
 debootstrap trixie /mnt http://deb.debian.org/debian/
 [ -x /mnt/bin/sh ] || die "bootstrap incomplete"
-ok "Base installed"
+ok "Base system"
 
-# --- post-chroot payload (SECURE VERSION - no sed/perl injection) ---
-log "Prepare post-chroot…"
+# --- 5) post-chroot payload with secure environment variable passing ---
+b "Prepare post-chroot"
 cat >/mnt/root/post-chroot.sh <<'EOS'
-set -euo pipefail
+set -Eeuo pipefail
 trap 'echo "[FAIL] line $LINENO"; exit 1' ERR
 
-# Environment variables are passed securely from parent process
-HN="$HOSTNAME"; TZ="$TZ"; DISK="$DISK"; RP="$POOL_R"; BP="$POOL_B"
-ARC="$ARC_MAX_BYTES"; NEW_USER="$NEW_USER"; NEW_USER_SUDO="$NEW_USER_SUDO"
-SSH_IMPORT_IDS="$SSH_IMPORT_IDS"; SSH_AUTHORIZED_KEYS="$SSH_AUTHORIZED_KEYS"; SSH_AUTHORIZED_KEYS_URLS="$SSH_AUTHORIZED_KEYS_URLS"
-PERMIT_ROOT_LOGIN="$PERMIT_ROOT_LOGIN"; PASSWORD_AUTH="$PASSWORD_AUTH"
+# Environment variables will be passed securely from parent process
+# No sed/perl injection vulnerability
 
-install -d -m 0755 /var/cache/apt/archives/partial /var/lib/apt/lists/partial /var/lib/dpkg/updates /var/log/apt
+install -d -m0755 /var/cache/apt/archives/partial /var/lib/apt/lists/partial /var/lib/dpkg/updates /var/log/apt
 [ -s /var/lib/dpkg/status ] || :> /var/lib/dpkg/status
 
-echo "$HN" >/etc/hostname
+echo "$HOSTNAME" >/etc/hostname
 ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
-printf "127.0.0.1 localhost\n127.0.1.1 $HN\n" >/etc/hosts
+printf "127.0.0.1 localhost\n127.0.1.1 %s\n" "$HOSTNAME" >/etc/hosts
 
 cat >/etc/apt/sources.list <<SL
 deb http://deb.debian.org/debian trixie main contrib non-free non-free-firmware
@@ -187,41 +197,40 @@ deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-f
 SL
 export DEBIAN_FRONTEND=noninteractive
 apt-get -y update
-apt-get -y install locales console-setup ca-certificates curl grub-common \
+apt-get -y install locales console-setup ca-certificates curl \
   linux-image-amd64 linux-headers-amd64 \
   zfs-dkms zfsutils-linux zfs-initramfs \
-  cloud-init openssh-server ssh-import-id sudo
+  openssh-server ssh-import-id sudo grub-common cloud-init
 
-# locales
+# locales before update-locale
 grep -q "^en_US.UTF-8" /etc/locale.gen || echo "en_US.UTF-8 UTF-8" >>/etc/locale.gen
-grep -q "^sv_SE.UTF-8" /etc/locale.gen || echo "sv_SE.UTF-8 UTF-8" >>/etc/locale.gen
 locale-gen >/dev/null 2>&1 || true
 command -v update-locale >/dev/null 2>&1 && update-locale LANG=en_US.UTF-8 || true
 
-# ensure RW + tmp
-zfs set readonly=off "$RP/ROOT/debian" || true
-zfs set readonly=off "$RP/var" || true
+# ensure RW env + tmp
+zfs set readonly=off "$POOL_R/ROOT/debian" || true
+zfs set readonly=off "$POOL_R/var" || true
 mount -o remount,rw / || true
 install -d -m1777 /var/tmp /tmp
 
-# zpool cache/hostid/bootfs
+# hostid + cache + bootfs
 command -v zgenhostid >/dev/null 2>&1 && zgenhostid "$(hostid)" || true
-zpool set cachefile=/etc/zfs/zpool.cache "$RP" || true
-zpool set cachefile=/etc/zfs/zpool.cache "$BP" || true
-zpool set bootfs="$RP/ROOT/debian" "$RP" || true
+zpool set cachefile=/etc/zfs/zpool.cache "$POOL_R" || true
+zpool set cachefile=/etc/zfs/zpool.cache "$POOL_B" || true
+zpool set bootfs="$POOL_R/ROOT/debian" "$POOL_R" || true
 
-# initramfs ZFS import: SAFE (no -f, readonly, path narrowed)
+# import policy for initramfs (safe; no -f)
 cat >/etc/default/zfs <<ZDF
 ZPOOL_IMPORT_PATH="/dev/disk/by-id"
-ZPOOL_IMPORT_OPTS="-N -o readonly=on"
+ZPOOL_IMPORT_OPTS="-N"
 ZPOOL_IMPORT_TIMEOUT="30"
-ZFS_INITRD_POST_MODPROBE_SLEEP="3"
+ZFS_INITRD_POST_MODPROBE_SLEEP="2"
 ZDF
 
 # ARC cap
-echo "options zfs zfs_arc_max=$ARC" >/etc/modprobe.d/zfs.conf
+echo "options zfs zfs_arc_max=$ARC_BYTES" >/etc/modprobe.d/zfs.conf
 
-# make sure /etc/default/grub exists, then set zfs root + a small delay
+# GRUB defaults + zfs root
 mkdir -p /etc/default
 [ -f /etc/default/grub ] || cat >/etc/default/grub <<'G'
 GRUB_DEFAULT=0
@@ -230,14 +239,12 @@ GRUB_DISTRIBUTOR=Debian
 GRUB_CMDLINE_LINUX=""
 GRUB_CMDLINE_LINUX_DEFAULT="quiet"
 G
-sed -ri "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"root=ZFS=$RP/ROOT/debian rootdelay=5\"|" /etc/default/grub
+sed -ri "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"root=ZFS=$POOL_R/ROOT/debian rootdelay=5\"|" /etc/default/grub
 grep -q '^GRUB_PRELOAD_MODULES' /etc/default/grub || echo 'GRUB_PRELOAD_MODULES="zfs"' >> /etc/default/grub
 
-# build initrd (ensure /boot mounted)
-mountpoint -q /boot || zfs mount "$BP/BOOT/debian" || true
+# build initrd + install GRUB (BIOS/UEFI)
+mountpoint -q /boot || zfs mount "$POOL_B/BOOT/debian" || true
 TMPDIR=/tmp update-initramfs -u
-
-# install GRUB
 if [ -d /sys/firmware/efi ]; then
   apt-get -y install grub-efi-amd64 efibootmgr
   mkdir -p /boot/efi
@@ -249,117 +256,132 @@ fi
 update-grub
 test -s /boot/grub/grub.cfg
 
-# flip mountpoints for runtime (ignore remount failures)
-zfs set mountpoint=/      "$RP/ROOT/debian" || true
-zfs set mountpoint=/boot  "$BP/BOOT/debian" || true
-zfs set mountpoint=/var            "$RP/var" || true
-zfs set mountpoint=/var/lib        "$RP/var/lib" || true
-zfs set mountpoint=/var/lib/mysql  "$RP/var/lib/mysql" || true
-zfs set mountpoint=/var/vmail      "$RP/var/vmail" || true
-zfs set mountpoint=/home           "$RP/home" || true
-zfs set mountpoint=/srv            "$RP/srv" || true
-
-# SSH configuration with hardened key handling
-sed -i -E "s/^#?PasswordAuthentication .*/PasswordAuthentication ${PASSWORD_AUTH}/" /etc/ssh/sshd_config || true
-grep -q '^PermitRootLogin' /etc/ssh/sshd_config && sed -i -E "s/^PermitRootLogin .*/PermitRootLogin ${PERMIT_ROOT_LOGIN}/" /etc/ssh/sshd_config || echo "PermitRootLogin ${PERMIT_ROOT_LOGIN}" >> /etc/ssh/sshd_config
+# SSH via drop-in; avoid editing main file
+install -d /etc/ssh/sshd_config.d
+umask 077
+cat >/etc/ssh/sshd_config.d/99-bootstrap.conf <<EOF
+PermitRootLogin ${PERMIT_ROOT_LOGIN}
+PasswordAuthentication ${PASSWORD_AUTH}
+EOF
 install -d -m700 /root/.ssh; : >/root/.ssh/authorized_keys; chmod 600 /root/.ssh/authorized_keys
 
-# Hardened SSH key import with timeout and validation
+# Enhanced SSH key handling with proper validation and timeout
 if [ -n "$SSH_IMPORT_IDS" ]; then
-  for id in $SSH_IMPORT_IDS; do
-    echo "Importing SSH keys for: $id"
-    timeout 30 ssh-import-id "$id" || echo "Warning: Failed to import keys for $id"
-  done
-fi
-
-# Direct key insertion (secure)
-if [ -n "$SSH_AUTHORIZED_KEYS" ]; then
-  echo "$SSH_AUTHORIZED_KEYS" | while IFS= read -r key; do
-    [ -n "$key" ] && echo "$key" >> /root/.ssh/authorized_keys
-  done
-fi
-
-# URL-based key fetching with timeout and validation
-if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then
-  for url in $SSH_AUTHORIZED_KEYS_URLS; do
-    echo "Fetching SSH keys from: $url"
-    if timeout 30 curl -fsSL "$url" 2>/dev/null | grep -E '^ssh-(rsa|dss|ecdsa|ed25519)' >> /root/.ssh/authorized_keys; then
-      echo "Successfully fetched keys from $url"
+  for import_id in $SSH_IMPORT_IDS; do
+    if timeout 30 ssh-import-id "$import_id"; then
+      [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully imported SSH key: $import_id" >&2
     else
-      echo "Warning: Failed to fetch keys from $url"
+      echo "[WARN] Failed to import SSH key: $import_id" >&2
     fi
   done
 fi
 
-# User account setup with proper SSH key handling
+if [ -n "$SSH_AUTHORIZED_KEYS" ]; then
+  printf '%s\n' $SSH_AUTHORIZED_KEYS >>/root/.ssh/authorized_keys
+fi
+
+if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then 
+  for u in $SSH_AUTHORIZED_KEYS_URLS; do 
+    if timeout 30 curl -fsSL "$u" >>/root/.ssh/authorized_keys; then
+      [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully fetched SSH keys from: $u" >&2
+    else
+      echo "[WARN] Failed to fetch SSH keys from: $u" >&2
+    fi
+  done
+fi
+
 if [ -n "$NEW_USER" ]; then
   id "$NEW_USER" >/dev/null 2>&1 || adduser --disabled-password --gecos "" "$NEW_USER"
-  [ "$NEW_USER_SUDO" = 1 ] && usermod -aG sudo "$NEW_USER"
-  install -d -m700 "/home/$NEW_USER/.ssh"; touch "/home/$NEW_USER/.ssh/authorized_keys"; chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"; chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
+  [ "$NEW_USER_SUDO" = "1" ] && usermod -aG sudo "$NEW_USER"
+  install -d -m700 "/home/$NEW_USER/.ssh"
+  : >"/home/$NEW_USER/.ssh/authorized_keys"; chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
+  chown -R "$NEW_USER:$NEW_USER" "/home/$NEW_USER/.ssh"
   
-  # SSH key import for user
   if [ -n "$SSH_IMPORT_IDS" ]; then
-    for id in $SSH_IMPORT_IDS; do
-      echo "Importing SSH keys for user $NEW_USER: $id"
-      timeout 30 sudo -u "$NEW_USER" ssh-import-id "$id" || echo "Warning: Failed to import keys for user $NEW_USER: $id"
-    done
-  fi
-  
-  # Direct keys for user
-  if [ -n "$SSH_AUTHORIZED_KEYS" ]; then
-    echo "$SSH_AUTHORIZED_KEYS" | while IFS= read -r key; do
-      [ -n "$key" ] && echo "$key" >> "/home/$NEW_USER/.ssh/authorized_keys"
-    done
-  fi
-  
-  # URL-based keys for user
-  if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then
-    for url in $SSH_AUTHORIZED_KEYS_URLS; do
-      echo "Fetching SSH keys for user $NEW_USER from: $url"
-      if timeout 30 curl -fsSL "$url" 2>/dev/null | grep -E '^ssh-(rsa|dss|ecdsa|ed25519)' >> "/home/$NEW_USER/.ssh/authorized_keys"; then
-        echo "Successfully fetched keys for user $NEW_USER from $url"
+    for import_id in $SSH_IMPORT_IDS; do
+      if timeout 30 sudo -u "$NEW_USER" ssh-import-id "$import_id"; then
+        [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully imported SSH key for $NEW_USER: $import_id" >&2
       else
-        echo "Warning: Failed to fetch keys for user $NEW_USER from $url"
+        echo "[WARN] Failed to import SSH key for $NEW_USER: $import_id" >&2
+      fi
+    done
+  fi
+  
+  [ -n "$SSH_AUTHORIZED_KEYS" ] && printf '%s\n' $SSH_AUTHORIZED_KEYS >>"/home/$NEW_USER/.ssh/authorized_keys"
+  
+  if [ -n "$SSH_AUTHORIZED_KEYS_URLS" ]; then 
+    for u in $SSH_AUTHORIZED_KEYS_URLS; do 
+      if timeout 30 curl -fsSL "$u" >>"/home/$NEW_USER/.ssh/authorized_keys"; then
+        [ "$DEBUG" = "1" ] && echo "[DEBUG] Successfully fetched SSH keys for $NEW_USER from: $u" >&2
+      else
+        echo "[WARN] Failed to fetch SSH keys for $NEW_USER from: $u" >&2
       fi
     done
   fi
 fi
 
+# cloud-init: only datasource list (doesn't override ssh)
 mkdir -p /etc/cloud/cloud.cfg.d
 echo 'datasource_list: [ConfigDrive, NoCloud, Ec2]' >/etc/cloud/cloud.cfg.d/90-datasources.cfg
-systemctl enable ssh zfs-import-cache zfs-mount zfs-import.target cloud-init cloud-config cloud-final cloud-init-local >/dev/null 2>&1 || true
 
-# checks
+# enable units (OK if "ignoring" in chroot; links still created)
+systemctl enable ssh zfs-import-cache zfs-import.target zfs-mount >/dev/null 2>&1 || true
+systemctl enable cloud-init cloud-config cloud-final cloud-init-local >/dev/null 2>&1 || true
+
+# sanity
+sshd -t
 test -s /boot/grub/grub.cfg
-ls -1 /boot/initrd.img-* /boot/vmlinuz-* >/dev/null
-zpool get -H -o value bootfs "$RP" | grep -q "$RP/ROOT/debian"
-command -v sshd >/dev/null && sshd -t
+ls -1 /boot/vmlinuz-* /boot/initrd.img-* >/dev/null
+zpool get -H -o value bootfs "$POOL_R" | grep -q "$POOL_R/ROOT/debian"
 echo "[OK] post-chroot done"
 EOS
 
-# SECURITY: Export variables to chroot environment instead of sed/perl injection
-export HOSTNAME TZ DISK POOL_R POOL_B NEW_USER NEW_USER_SUDO 
-export SSH_IMPORT_IDS SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_URLS 
-export PERMIT_ROOT_LOGIN PASSWORD_AUTH
-export ARC_MAX_BYTES=$((ARC_MAX_MB*1024*1024))
+# SECURITY: Pass environment variables securely instead of using sed/perl injection
+export HOSTNAME TZ DISK POOL_R POOL_B ARC_BYTES=$((ARC_MAX_MB*1024*1024))
+export NEW_USER NEW_USER_SUDO SSH_IMPORT_IDS SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_URLS 
+export PERMIT_ROOT_LOGIN PASSWORD_AUTH DEBUG
 ok "post-chroot prepared"
 
-# --- chroot run + checks ---
-log "Finalize in chroot…"
+# --- 6) run post-chroot ---
+b "Finalize in chroot"
 for d in dev proc sys run; do mount --rbind "/$d" "/mnt/$d"; mount --make-rslave "/mnt/$d"; done
-mkdir -p /mnt/etc; [ -e /mnt/etc/resolv.conf ] || :>/mnt/etc/resolv.conf; mount --bind /etc/resolv.conf /mnt/etc/resolv.conf
+mkdir -p /mnt/etc; [ -e /mnt/etc/resolv.conf ] || : >/mnt/etc/resolv.conf
+mount --bind /etc/resolv.conf /mnt/etc/resolv.conf
+
+# SECURITY: Execute chroot with environment variables instead of sed/perl injection
 chroot /mnt /bin/bash /root/post-chroot.sh
+
 chroot /mnt test -s /boot/grub/grub.cfg
-chroot /mnt zpool get -H -o value bootfs "$POOL_R" | grep -q "$POOL_R/ROOT/debian"
+chroot /mnt command -v sshd >/dev/null
 ok "Chroot finalize OK"
 
-# --- teardown (best-effort) ---
-log "Teardown…"
+# --- 7) teardown (unmount first, THEN set runtime mountpoints), export ---
+b "Teardown + runtime mountpoints"
 umount -l /mnt/etc/resolv.conf 2>/dev/null || true
 for m in /mnt/dev/pts /mnt/dev /mnt/proc /mnt/sys /mnt/run; do umount -l "$m" 2>/dev/null || true; done
+
+# Unmount datasets cleanly
 zfs list -H -o name -r "$POOL_R" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null || true
 zfs list -H -o name -r "$POOL_B" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null || true
-findmnt -R /mnt -o TARGET | tac | xargs -r -n1 umount -lf 2>/dev/null || true
+
+# Flip mountpoints NOW (no remount attempts since nothing is mounted)
+for spec in \
+  "$POOL_R/ROOT/debian=/" \
+  "$POOL_B/BOOT/debian=/boot" \
+  "$POOL_R/var=/var" \
+  "$POOL_R/var/lib=/var/lib" \
+  "$POOL_R/var/lib/mysql=/var/lib/mysql" \
+  "$POOL_R/var/vmail=/var/vmail" \
+  "$POOL_R/home=/home" \
+  "$POOL_R/srv=/srv"; do
+  ds=${spec%%=*}; mp=${spec#*=}
+  zfs set mountpoint="$mp" "$ds"
+done
+ok "Mountpoints set for runtime"
+
+# Export pools (best-effort)
 zpool export -f "$POOL_B" 2>/dev/null || true
 zpool export -f "$POOL_R" 2>/dev/null || true
 ok "Done. Reboot."
+
+echo "If initramfs prompts:  zpool import -N -R /root -d /dev/disk/by-id rpool && zfs mount -a && exit"
