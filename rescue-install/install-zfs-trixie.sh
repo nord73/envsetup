@@ -32,7 +32,7 @@ PASSWORD_AUTH="${PASSWORD_AUTH:-no}"                            # yes|no
 BOLD=$'\033[1m'; CLR=$'\033[0m'
 log(){ echo "${BOLD}[INFO]${CLR} $*"; }
 ok(){  echo "${BOLD}[OK ]${CLR}  $*"; }
-warn(){echo "${BOLD}[WARN]${CLR} $*"; }
+warn(){ echo "${BOLD}[WARN]${CLR} $*"; }
 die(){ echo "${BOLD}[FAIL]${CLR} $*"; exit 1; }
 ask(){ [ "$FORCE" = "1" ] && return 0; read -r -p "$1 [y/N]: " a; [[ $a =~ ^[Yy]$ ]]; }
 
