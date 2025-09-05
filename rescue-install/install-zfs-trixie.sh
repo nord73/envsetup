@@ -37,6 +37,20 @@ dpkg-divert --local --rename --add /usr/sbin/update-initramfs >/dev/null 2>&1 ||
 printf '#!/bin/sh\nexit 0\n' >/usr/sbin/update-initramfs && chmod +x /usr/sbin/update-initramfs
 apt-get -y install dkms build-essential "linux-headers-$(uname -r)" zfs-dkms zfsutils-linux debootstrap gdisk dosfstools
 modprobe zfs || die "zfs modprobe failed"
+
+# Check for existing pools that might need importing before proceeding
+log "Checking for existing ZFS pools…"
+if zpool import -d "$DISK" >/dev/null 2>&1; then
+  # Pools exist on disk but aren't imported
+  log "Found existing pools on $DISK"
+  available_pools=$(zpool import -d "$DISK" 2>/dev/null | grep -E '^\s+pool:' | awk '{print $2}' || true)
+  for pool in $available_pools; do
+    if [[ "$pool" == "$POOL_R" || "$pool" == "$POOL_B" ]]; then
+      log "Found existing target pool $pool, will handle during pool creation phase"
+    fi
+  done
+fi
+
 ok "Rescue ready"
 
 # --- partition ---
@@ -53,13 +67,44 @@ ok "Partitioned"
 # --- pools ---
 log "Creating pools…"
 [ "$ENCRYPT" = yes ] && ENC=(-O encryption=aes-256-gcm -O keyformat=passphrase) || ENC=()
-zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
-  -o compatibility=grub2 -O atime=off -O xattr=sa -O acltype=posixacl -O compression=lz4 \
-  -O mountpoint=none -O canmount=off "$POOL_B" "${DISK}2"
-zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
-  -O atime=off -O xattr=sa -O acltype=posixacl -O compression=lz4 \
-  -O mountpoint=none -O canmount=off "${ENC[@]}" "$POOL_R" "${DISK}3"
-ok "Pools created"
+
+# Check if pools already exist and handle gracefully
+if zpool list "$POOL_B" >/dev/null 2>&1; then
+  log "Pool $POOL_B already exists, checking import status…"
+  if ! zpool status "$POOL_B" >/dev/null 2>&1; then
+    log "Importing existing pool $POOL_B with force…"
+    zpool import -f -N -d "${DISK}2" "$POOL_B" || die "Failed to import existing pool $POOL_B"
+  fi
+else
+  # Try to import from disk if it exists there but not in pool list
+  if zpool import -d "${DISK}2" -N "$POOL_B" >/dev/null 2>&1 || zpool import -f -d "${DISK}2" -N "$POOL_B" >/dev/null 2>&1; then
+    log "Imported existing pool $POOL_B from disk"
+  else
+    log "Creating new pool $POOL_B"
+    zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
+      -o compatibility=grub2 -O atime=off -O xattr=sa -O acltype=posixacl -O compression=lz4 \
+      -O mountpoint=none -O canmount=off "$POOL_B" "${DISK}2"
+  fi
+fi
+
+if zpool list "$POOL_R" >/dev/null 2>&1; then
+  log "Pool $POOL_R already exists, checking import status…"
+  if ! zpool status "$POOL_R" >/dev/null 2>&1; then
+    log "Importing existing pool $POOL_R with force…"
+    zpool import -f -N -d "${DISK}3" "$POOL_R" || die "Failed to import existing pool $POOL_R"
+  fi
+else
+  # Try to import from disk if it exists there but not in pool list
+  if zpool import -d "${DISK}3" -N "$POOL_R" >/dev/null 2>&1 || zpool import -f -d "${DISK}3" -N "$POOL_R" >/dev/null 2>&1; then
+    log "Imported existing pool $POOL_R from disk"
+  else
+    log "Creating new pool $POOL_R"
+    zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
+      -O atime=off -O xattr=sa -O acltype=posixacl -O compression=lz4 \
+      -O mountpoint=none -O canmount=off "${ENC[@]}" "$POOL_R" "${DISK}3"
+  fi
+fi
+ok "Pools ready"
 
 # --- datasets (idempotent) ---
 ensure_ds(){ zfs list -H -o name "$1" >/dev/null 2>&1 || zfs create "${@:2}" "$1"; }
@@ -129,17 +174,24 @@ mount -o remount,rw / || true
 install -d -m1777 /var/tmp /tmp
 
 # zpool cache/hostid/bootfs
+# Ensure consistent hostid to avoid import conflicts
 command -v zgenhostid >/dev/null 2>&1 && zgenhostid "$(hostid)" || true
+# If hostid is problematic, generate a new one
+if [ ! -f /etc/hostid ] || [ "$(stat -c %s /etc/hostid)" -ne 4 ]; then
+  zgenhostid >/dev/null 2>&1 || true
+fi
 zpool set cachefile=/etc/zfs/zpool.cache "$RP" || true
 zpool set cachefile=/etc/zfs/zpool.cache "$BP" || true
 zpool set bootfs="$RP/ROOT/debian" "$RP" || true
 
 # initramfs ZFS import: SAFE (no -f, readonly, path narrowed)
+# Note: In case of hostid conflicts, allow force import in initramfs
 cat >/etc/default/zfs <<ZDF
 ZPOOL_IMPORT_PATH="/dev/disk/by-id"
 ZPOOL_IMPORT_OPTS="-N -o readonly=on"
 ZPOOL_IMPORT_TIMEOUT="30"
 ZFS_INITRD_POST_MODPROBE_SLEEP="3"
+ZFS_INITRD_PRE_MOUNTROOT_SLEEP="3"
 ZDF
 
 # ARC cap
@@ -238,5 +290,5 @@ zfs list -H -o name -r "$POOL_R" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/
 zfs list -H -o name -r "$POOL_B" | sort -r | xargs -r -n1 zfs unmount -f 2>/dev/null || true
 findmnt -R /mnt -o TARGET | tac | xargs -r -n1 umount -lf 2>/dev/null || true
 zpool export -f "$POOL_B" 2>/dev/null || true
-zpool export -f "$POOL_R" 2:/dev/null || true || true
+zpool export -f "$POOL_R" 2>/dev/null || true
 ok "Done. Reboot."
