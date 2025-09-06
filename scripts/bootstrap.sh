@@ -4,6 +4,75 @@
 
 set -e
 
+# --- help ---
+show_help() {
+cat << 'EOF'
+Environment Bootstrap Script for Ubuntu/Debian/MacOS
+
+USAGE:
+    ./scripts/bootstrap.sh [OPTIONS]
+
+DESCRIPTION:
+    Minimal environment setup toolkit that verifies and installs essential
+    development tools, creates user directories, and optionally sets up Docker.
+    Designed for user-local installs to avoid system-wide contamination.
+
+FEATURES:
+    • Bootstrap essential development tools
+    • User-local directory setup (~/bin, ~/src)
+    • Optional Docker installation
+    • Homebrew setup on MacOS (user-local)
+    • Dotfiles symlinking
+
+ESSENTIAL TOOLS INSTALLED:
+    git, curl, wget, tree, htop, fzf, ripgrep, bat, jq
+
+SUPPORTED PLATFORMS:
+    • Ubuntu 24.04+
+    • Debian 13+  
+    • MacOS (latest)
+
+OPTIONS:
+    --docker      Also install Docker CE (Linux) or recommend Docker Desktop (MacOS)
+    -h, --help    Show this help message and exit
+
+EXAMPLES:
+    # Basic setup
+    ./scripts/bootstrap.sh
+
+    # Setup with Docker
+    ./scripts/bootstrap.sh --docker
+
+DOTFILES:
+    If present in dotfiles/ directory, the following will be symlinked to ~/:
+    .bashrc, .profile, .gitconfig, .vimrc
+
+HOMEBREW (MacOS):
+    Installs Homebrew to ~/.brew for user-local package management.
+    Run 'source ~/bin/brew-source.sh' to activate after installation.
+
+EOF
+}
+
+# --- parse args ---
+INSTALL_DOCKER=false
+for arg in "$@"; do
+    case $arg in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        --docker)
+            INSTALL_DOCKER=true
+            ;;
+        *)
+            echo "Unknown option: $arg"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 # Essential tools to verify/install
 TOOLS=(git curl wget tree htop fzf ripgrep bat jq)
 
@@ -48,14 +117,6 @@ install_macos() {
     fi
   done
 }
-
-# Check for --docker flag
-INSTALL_DOCKER=false
-for arg in "$@"; do
-  if [ "$arg" == "--docker" ]; then
-    INSTALL_DOCKER=true
-  fi
-done
 
 # Function to install Docker CE on Linux
 install_docker_linux() {
