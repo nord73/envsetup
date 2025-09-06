@@ -41,8 +41,16 @@ ADVANCED FEATURES:
     • DEBUG mode for troubleshooting (DEBUG=1)
     • Optional disk autodetect (automatically finds largest available disk)
     • Optimal partition alignment (1MiB boundaries)
-    • Robust cleanup with retries and process termination
-    • Idempotent operations (safe to re-run)
+    • Separate cleanup script for problematic re-runs (cleanup-zfs.sh)
+    • Idempotent operations with ZFS state detection
+
+CLEANUP:
+    If installation fails due to existing ZFS pools, use the cleanup script:
+    
+        sudo ./cleanup-zfs.sh --disk /dev/sda
+    
+    Then re-run the installer. The cleanup script can also be used standalone
+    for troubleshooting ZFS state issues.
 
 CONFIGURATION:
     Configure via environment variables or .env file:
@@ -153,47 +161,47 @@ apt-get -y install dkms build-essential "linux-headers-$(uname -r)" zfs-dkms zfs
 modprobe zfs || die "zfs modprobe failed"
 ok "Rescue prereqs"
 
-# --- 1) ZFS cleanup before partitioning ---
-b "ZFS cleanup before partitioning $DISK"
+# --- 1) Check for existing ZFS state ---
+b "Checking for existing ZFS pools on $DISK"
 
-# Check if any existing ZFS pools need cleanup before we partition
-cleanup_needed=false
+# Simple check for existing ZFS state that would conflict
+has_zfs_state=false
 
-# Check for our target pools by name
+# Check for our target pools
 if zpool list "$POOL_B" >/dev/null 2>&1 || zpool list "$POOL_R" >/dev/null 2>&1; then
-  cleanup_needed=true
+  has_zfs_state=true
 fi
 
-# Check for importable pools that might conflict
-if zpool import 2>/dev/null | grep -E "(pool|$POOL_B|$POOL_R)" >/dev/null; then
-  cleanup_needed=true
+# Check for importable pools that might conflict  
+if zpool import 2>/dev/null | grep -E "pool:" | grep -E "($POOL_B|$POOL_R)" >/dev/null 2>&1; then
+  has_zfs_state=true
 fi
 
-if [ "$cleanup_needed" = true ]; then
-  b "Cleaning up existing ZFS pools"
-  
-  # Export and destroy our target pools if they exist
-  for pool in "$POOL_B" "$POOL_R"; do
-    if zpool list "$pool" >/dev/null 2>&1; then
-      b "Destroying existing pool $pool"
-      zpool export -f "$pool" 2>/dev/null || true
-      zpool destroy -f "$pool" 2>/dev/null || true
-    fi
-    
-    # Also try to import and destroy if it's available for import
-    if zpool import -N "$pool" >/dev/null 2>&1; then
-      zpool destroy -f "$pool" 2>/dev/null || true
-    fi
-  done
-  
-  # Clear ZFS caches
-  rm -f /etc/zfs/zpool.cache* 2>/dev/null || true
-  rm -rf /etc/zfs/zfs-list.cache* 2>/dev/null || true
-  rm -rf /run/zfs/* 2>/dev/null || true
-  
-  ok "ZFS cleanup completed"
+# Check for ZFS signatures on target disk partitions
+for part in "${DISK}"*; do
+  if [ -b "$part" ] && blkid -p "$part" 2>/dev/null | grep -q zfs_member; then
+    has_zfs_state=true
+    break
+  fi
+done
+
+if [ "$has_zfs_state" = true ]; then
+  echo
+  echo -e "\033[1;33m[WARNING]\033[0m Existing ZFS pools or signatures detected on $DISK"
+  echo "This can cause installation failures. Run cleanup first:"
+  echo
+  echo "  sudo ./cleanup-zfs.sh --disk $DISK"
+  echo
+  echo "Then re-run this installer."
+  echo
+  read -p "Continue anyway? [y/N]: " -r continue_anyway
+  if [[ ! "$continue_anyway" =~ ^[Yy]$ ]]; then
+    echo "Installation cancelled. Run cleanup script first."
+    exit 1
+  fi
+  warn "Proceeding with existing ZFS state - installation may fail"
 else
-  b "No existing ZFS pools found, skipping cleanup"
+  ok "No conflicting ZFS state detected"
 fi
 
 # --- 2) partition ---
