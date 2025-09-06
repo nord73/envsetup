@@ -41,8 +41,16 @@ ADVANCED FEATURES:
     • DEBUG mode for troubleshooting (DEBUG=1)
     • Optional disk autodetect (automatically finds largest available disk)
     • Optimal partition alignment (1MiB boundaries)
-    • Robust cleanup with retries and process termination
-    • Idempotent operations (safe to re-run)
+    • Separate cleanup script for problematic re-runs (cleanup-zfs.sh)
+    • Idempotent operations with ZFS state detection
+
+CLEANUP:
+    If installation fails due to existing ZFS pools, use the cleanup script:
+    
+        sudo ./cleanup-zfs.sh --disk /dev/sda
+    
+    Then re-run the installer. The cleanup script can also be used standalone
+    for troubleshooting ZFS state issues.
 
 CONFIGURATION:
     Configure via environment variables or .env file:
@@ -153,7 +161,50 @@ apt-get -y install dkms build-essential "linux-headers-$(uname -r)" zfs-dkms zfs
 modprobe zfs || die "zfs modprobe failed"
 ok "Rescue prereqs"
 
-# --- 1) partition ---
+# --- 1) Check for existing ZFS state ---
+b "Checking for existing ZFS pools on $DISK"
+
+# Simple check for existing ZFS state that would conflict
+has_zfs_state=false
+
+# Check for our target pools
+if zpool list "$POOL_B" >/dev/null 2>&1 || zpool list "$POOL_R" >/dev/null 2>&1; then
+  has_zfs_state=true
+fi
+
+# Check for importable pools that might conflict  
+if zpool import 2>/dev/null | grep -E "pool:" | grep -E "($POOL_B|$POOL_R)" >/dev/null 2>&1; then
+  has_zfs_state=true
+fi
+
+# Check for ZFS signatures on target disk partitions
+for part in "${DISK}"*; do
+  if [ -b "$part" ] && blkid -p "$part" 2>/dev/null | grep -q zfs_member; then
+    has_zfs_state=true
+    break
+  fi
+done
+
+if [ "$has_zfs_state" = true ]; then
+  echo
+  echo -e "\033[1;33m[WARNING]\033[0m Existing ZFS pools or signatures detected on $DISK"
+  echo "This can cause installation failures. Run cleanup first:"
+  echo
+  echo "  sudo ./cleanup-zfs.sh --disk $DISK"
+  echo
+  echo "Then re-run this installer."
+  echo
+  read -p "Continue anyway? [y/N]: " -r continue_anyway
+  if [[ ! "$continue_anyway" =~ ^[Yy]$ ]]; then
+    echo "Installation cancelled. Run cleanup script first."
+    exit 1
+  fi
+  warn "Proceeding with existing ZFS state - installation may fail"
+else
+  ok "No conflicting ZFS state detected"
+fi
+
+# --- 2) partition ---
 b "Partitioning $DISK"
 sgdisk -Z "$DISK"
 if [ "$BOOTMODE" = uefi ]; then
@@ -162,40 +213,28 @@ if [ "$BOOTMODE" = uefi ]; then
 else
   sgdisk -n1:1M:+1M -t1:EF02 "$DISK"; sgdisk -n2:0:+2G -t2:BF01 "$DISK"; sgdisk -n3:0:0 -t3:BF01 "$DISK"
 fi
+
+# Force kernel to recognize new partitions
+partprobe "$DISK" 2>/dev/null || true
+sleep 2
+
 ok "Partitioned"
 
-# --- 2) pools ---
+# --- 3) pools ---
 b "Creating ZFS pools"
 
-# Clean up any existing pools that might conflict
-# First try to export pools by name (safer than destroy)
-if zpool list "$POOL_B" >/dev/null 2>&1; then
-  b "Exporting existing pool $POOL_B"
-  zpool export -f "$POOL_B" 2>/dev/null || zpool destroy -f "$POOL_B" 2>/dev/null || true
-fi
-
-if zpool list "$POOL_R" >/dev/null 2>&1; then
-  b "Exporting existing pool $POOL_R"
-  zpool export -f "$POOL_R" 2>/dev/null || zpool destroy -f "$POOL_R" 2>/dev/null || true
-fi
-
-# Clean up any pools using our target devices
-# Get list of all active pools and check each one
-if active_pools=$(zpool list -H -o name 2>/dev/null); then
-  for pool_name in $active_pools; do
-    if zpool status "$pool_name" 2>/dev/null | grep -E "(${DISK}[0-9]+|${DISK})" >/dev/null; then
-      b "Found pool '$pool_name' using device $DISK, cleaning up"
-      zpool export -f "$pool_name" 2>/dev/null || zpool destroy -f "$pool_name" 2>/dev/null || true
-    fi
-  done
-fi
-
-# Clear any ZFS labels from the target partitions to ensure clean state
+# Check if partitions exist and wait for them to be available
 for partition in "${DISK}2" "${DISK}3"; do
-  if [ -b "$partition" ]; then
-    b "Clearing ZFS labels from $partition"
-    zpool labelclear -f "$partition" 2>/dev/null || true
-  fi
+  for i in 1 2 3 4 5; do
+    if [ -b "$partition" ]; then
+      break
+    fi
+    b "Waiting for partition $partition to appear (attempt $i/5)"
+    partprobe "$DISK" 2>/dev/null || true
+    udevadm settle --timeout=5
+    sleep 1
+  done
+  [ -b "$partition" ] || die "Partition $partition not found after partitioning"
 done
 
 [ "$ENCRYPT" = yes ] && ENC=(-O encryption=aes-256-gcm -O keyformat=passphrase) || ENC=()
@@ -207,7 +246,7 @@ zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
   -O mountpoint=none -O canmount=off "${ENC[@]}" "$POOL_R" "${DISK}3"
 ok "Pools created"
 
-# --- 3) datasets + temp mounts ---
+# --- 4) datasets + temp mounts ---
 ensure_ds(){ zfs list -H -o name "$1" >/dev/null 2>&1 || zfs create "${@:2}" "$1"; }
 ensure_mount(){ local ds="$1" mp="$2"; zfs set mountpoint="$mp" "$ds"; [ "$(zfs get -H -o value mounted "$ds")" = yes ] || zfs mount "$ds"; }
 
@@ -229,13 +268,13 @@ ensure_ds "$POOL_R/home"              -o mountpoint=/mnt/home
 ensure_ds "$POOL_R/srv"               -o mountpoint=/mnt/srv
 ok "Datasets mounted at /mnt"
 
-# --- 4) debootstrap ---
+# --- 5) debootstrap ---
 b "Debootstrap trixie"
 debootstrap trixie /mnt http://deb.debian.org/debian/
 [ -x /mnt/bin/sh ] || die "bootstrap incomplete"
 ok "Base system"
 
-# --- 5) post-chroot payload (NO mountpoint flips here) ---
+# --- 6) post-chroot payload (NO mountpoint flips here) ---
 b "Prepare post-chroot"
 
 # Calculate ARC bytes for environment variable
@@ -268,15 +307,24 @@ deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-f
 SL
 export DEBIAN_FRONTEND=noninteractive
 apt-get -y update
-apt-get -y install locales console-setup ca-certificates curl \
-  linux-image-amd64 linux-headers-amd64 \
-  zfs-dkms zfsutils-linux zfs-initramfs \
-  openssh-server ssh-import-id sudo grub-common cloud-init
 
-# locales before update-locale
+# Setup locales first before installing packages that need locale support
+apt-get -y install locales
 grep -q "^en_US.UTF-8" /etc/locale.gen || echo "en_US.UTF-8 UTF-8" >>/etc/locale.gen
 locale-gen >/dev/null 2>&1 || true
 command -v update-locale >/dev/null 2>&1 && update-locale LANG=en_US.UTF-8 || true
+
+# Set locale environment variables for package installation
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export LC_CTYPE=en_US.UTF-8
+export LC_MESSAGES=en_US.UTF-8
+
+# Now install remaining packages with proper locale environment
+apt-get -y install console-setup ca-certificates curl \
+  linux-image-amd64 linux-headers-amd64 \
+  zfs-dkms zfsutils-linux zfs-initramfs \
+  openssh-server ssh-import-id sudo grub-common cloud-init
 
 # ensure RW env + tmp
 zfs set readonly=off "$RP/ROOT/debian" >/dev/null 2>&1 || true
@@ -403,7 +451,7 @@ export PERMIT_ROOT_LOGIN PASSWORD_AUTH
 
 ok "post-chroot prepared"
 
-# --- 6) run post-chroot ---
+# --- 7) run post-chroot ---
 b "Finalize in chroot"
 for d in dev proc sys run; do mount --rbind "/$d" "/mnt/$d"; mount --make-rslave "/mnt/$d"; done
 mkdir -p /mnt/etc; [ -e /mnt/etc/resolv.conf ] || : >/mnt/etc/resolv.conf
@@ -413,7 +461,7 @@ chroot /mnt test -s /boot/grub/grub.cfg
 chroot /mnt /bin/bash -lc 'command -v sshd && sshd -t'
 ok "Chroot finalize OK"
 
-# --- 7) teardown (unmount first, THEN set runtime mountpoints), export ---
+# --- 8) teardown (unmount first, THEN set runtime mountpoints), export ---
 b "Teardown + runtime mountpoints"
 umount -l /mnt/etc/resolv.conf 2>/dev/null || true
 for m in /mnt/dev/pts /mnt/dev /mnt/proc /mnt/sys /mnt/run; do umount -l "$m" 2>/dev/null || true; done
