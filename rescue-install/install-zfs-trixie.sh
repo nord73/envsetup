@@ -25,7 +25,7 @@ cat << 'EOF'
 ZFS-on-root installer for Debian 13 (Trixie)
 
 USAGE:
-    sudo ./install-zfs-trixie.sh [OPTIONS]
+    sudo ./install-zfs-trixie.sh [OPTIONS] [KEY=VALUE ...]
 
 DESCRIPTION:
     Advanced ZFS-on-root installer with enhanced security features and
@@ -67,14 +67,18 @@ EXAMPLES:
     # Basic install with auto-detected disk
     sudo ./install-zfs-trixie.sh
 
-    # Install with specific configuration  
+    # Install with specific configuration (environment variables before script)
     sudo DISK=/dev/nvme0n1 NEW_USER=admin SSH_IMPORT_IDS="gh:myuser" ./install-zfs-trixie.sh
+
+    # Install with specific configuration (environment variables as arguments)
+    sudo ./install-zfs-trixie.sh DISK=/dev/nvme0n1 NEW_USER=admin SSH_IMPORT_IDS="gh:myuser"
 
     # Install with debug mode and force (no confirmations)
     sudo DEBUG=1 FORCE=1 ./install-zfs-trixie.sh
 
 OPTIONS:
-    -h, --help    Show this help message and exit
+    -h, --help         Show this help message and exit
+    KEY=VALUE          Set environment variable KEY to VALUE
 
 REQUIREMENTS:
     • Must run as root
@@ -90,6 +94,18 @@ for arg in "$@"; do
         -h|--help)
             show_help
             exit 0
+            ;;
+        *=*)
+            # Handle KEY=VALUE environment variable assignments
+            key="${arg%%=*}"
+            value="${arg#*=}"
+            if [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]]; then
+                export "$key"="$value"
+            else
+                echo "Invalid environment variable name: $key"
+                echo "Use --help for usage information"
+                exit 1
+            fi
             ;;
         *)
             echo "Unknown option: $arg"
