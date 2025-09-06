@@ -203,10 +203,12 @@ modprobe -r zfs 2>/dev/null || true
 modprobe -r spl 2>/dev/null || true
 sleep 3
 
-# Step 4: Clear all ZFS caches and state files
+# Step 4: Clear all ZFS caches and state files more thoroughly
 rm -f /etc/zfs/zpool.cache* 2>/dev/null || true
 rm -rf /etc/zfs/zfs-list.cache* 2>/dev/null || true
 rm -rf /run/zfs/* 2>/dev/null || true
+rm -rf /var/lib/zfs/* 2>/dev/null || true
+rm -f /tmp/zpool.cache* 2>/dev/null || true
 
 # Step 5: AGGRESSIVE device clearing before reloading modules
 for partition in "${DISK}2" "${DISK}3"; do
@@ -258,25 +260,25 @@ for attempt in 1 2 3 4 5; do
   # Check for our specific pools by name (more precise than grep patterns)
   if zpool list "$POOL_B" >/dev/null 2>&1; then
     pools_exist=true
+    [ $attempt -eq 5 ] && warn "Pool $POOL_B still exists in zpool list"
   fi
   if zpool list "$POOL_R" >/dev/null 2>&1; then
     pools_exist=true
+    [ $attempt -eq 5 ] && warn "Pool $POOL_R still exists in zpool list"
   fi
   
-  # Check for importable pools that use our devices
-  # This is more thorough than just checking if they exist
-  if zpool import 2>/dev/null | grep -E "(${DISK}2|${DISK}3)" >/dev/null; then
+  # Check for importable pools more reliably by actually trying to import by name
+  if zpool import -N "$POOL_B" >/dev/null 2>&1; then
     pools_exist=true
+    [ $attempt -eq 5 ] && warn "Pool $POOL_B can still be imported"
+    # Try to import and destroy it immediately
+    zpool import -N "$POOL_B" 2>/dev/null && zpool destroy -f "$POOL_B" 2>/dev/null || true
   fi
-  
-  # Also check if any pool cache references our target pools
-  if [ -f /etc/zfs/zpool.cache ]; then
-    for pool_name in "$POOL_B" "$POOL_R"; do
-      if zdb -C -U /etc/zfs/zpool.cache "$pool_name" >/dev/null 2>&1; then
-        pools_exist=true
-        break
-      fi
-    done
+  if zpool import -N "$POOL_R" >/dev/null 2>&1; then
+    pools_exist=true
+    [ $attempt -eq 5 ] && warn "Pool $POOL_R can still be imported"
+    # Try to import and destroy it immediately
+    zpool import -N "$POOL_R" 2>/dev/null && zpool destroy -f "$POOL_R" 2>/dev/null || true
   fi
   
   # Check device availability with multiple methods
@@ -353,17 +355,38 @@ for attempt in 1 2 3 4 5; do
         # Multiple clearing attempts with different tools
         zpool labelclear -f "$partition" 2>/dev/null || true
         wipefs -af "$partition" 2>/dev/null || true
-        sgdisk --zap-all "$partition" 2>/dev/null || true
         
-        # Zero out critical areas where ZFS metadata lives
-        dd if=/dev/zero of="$partition" bs=1M count=10 2>/dev/null || true
-        dd if=/dev/zero of="$partition" bs=512 count=32768 2>/dev/null || true
+        # Zero out critical areas where ZFS metadata lives (more comprehensive)
+        # Clear first 1GB and last 1GB to ensure all ZFS metadata is gone
+        dd if=/dev/zero of="$partition" bs=1M count=1024 2>/dev/null || true
+        if [ -b "$partition" ]; then
+          # Get device size and clear the end
+          device_size=$(blockdev --getsize64 "$partition" 2>/dev/null || echo "0")
+          if [ "$device_size" -gt 1073741824 ]; then  # > 1GB
+            end_offset=$(( (device_size / 1048576) - 1024 ))  # 1GB from end in MB
+            dd if=/dev/zero of="$partition" bs=1M seek="$end_offset" count=1024 2>/dev/null || true
+          fi
+        fi
         
-        # Force kernel to forget about the device
-        blockdev --rereadpt "$partition" 2>/dev/null || true
+        # Clear filesystem signatures one more time
+        wipefs -af "$partition" 2>/dev/null || true
+        
         sync
       fi
     done
+    
+    # Clear the entire disk's partition table and recreate it
+    warn "Recreating partition table on $DISK"
+    sgdisk --zap-all "$DISK" 2>/dev/null || true
+    partprobe "$DISK" 2>/dev/null || true
+    sleep 2
+    
+    # Recreate the partitions we need
+    sgdisk -n1:1M:+1G -t1:EF00 "$DISK" 2>/dev/null || true
+    sgdisk -n2:0:+2G -t2:BE00 "$DISK" 2>/dev/null || true  
+    sgdisk -n3:0:0 -t3:BF00 "$DISK" 2>/dev/null || true
+    partprobe "$DISK" 2>/dev/null || true
+    sleep 2
     
     # Force kernel refresh
     for _ in 1 2 3; do
@@ -382,30 +405,43 @@ for attempt in 1 2 3 4 5; do
     final_pools_exist=false
     final_devices_busy=false
     
-    # Check for our specific pools by name
+    # Check for our specific pools by name with debugging
     if zpool list "$POOL_B" >/dev/null 2>&1; then
       final_pools_exist=true
+      warn "Final check: Pool $POOL_B still in zpool list"
     fi
     if zpool list "$POOL_R" >/dev/null 2>&1; then
       final_pools_exist=true
+      warn "Final check: Pool $POOL_R still in zpool list"
     fi
     
-    # Check for any importable pools
-    if zpool import 2>/dev/null | grep -E "(${DISK}2|${DISK}3)" >/dev/null; then
+    # Check for importable pools by name
+    if zpool import -N "$POOL_B" >/dev/null 2>&1; then
       final_pools_exist=true
+      warn "Final check: Pool $POOL_B still importable"
+    fi
+    if zpool import -N "$POOL_R" >/dev/null 2>&1; then
+      final_pools_exist=true
+      warn "Final check: Pool $POOL_R still importable"
     fi
     
-    # Check device availability
+    # Check device availability with enhanced debugging
     for partition in "${DISK}2" "${DISK}3"; do
       if [ -b "$partition" ]; then
+        # Test actual write access
         if ! dd if=/dev/zero of="$partition" bs=512 count=1 2>/dev/null; then
           final_devices_busy=true
+          warn "Final check: Cannot write to $partition"
           break
         fi
+        # Check if device has ZFS signatures
         if blkid "$partition" 2>/dev/null | grep -q "TYPE.*zfs"; then
           final_devices_busy=true
+          warn "Final check: $partition still has ZFS signature: $(blkid "$partition" 2>/dev/null)"
           break
         fi
+      else
+        warn "Final check: $partition does not exist as block device"
       fi
     done
     
