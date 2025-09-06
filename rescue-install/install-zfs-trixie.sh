@@ -218,7 +218,7 @@ for partition in "${DISK}2" "${DISK}3"; do
     sleep 1
     
     # Multiple aggressive clearing passes
-    for pass in 1 2 3 4 5; do
+    for _ in 1 2 3 4 5; do
       # Zero out first 100MB and last 100MB (where ZFS metadata lives)
       dd if=/dev/zero of="$partition" bs=1M count=100 2>/dev/null || true
       dd if=/dev/zero of="$partition" bs=1M seek=$(($(blockdev --getsize64 "$partition")/1048576 - 100)) count=100 2>/dev/null || true
@@ -237,7 +237,7 @@ for partition in "${DISK}2" "${DISK}3"; do
 done
 
 # Step 6: Force kernel to forget about old partition state
-for i in 1 2 3 4 5; do
+for _ in 1 2 3 4 5; do
   partprobe "$DISK" 2>/dev/null || true
   udevadm settle --timeout=15
   udevadm trigger --subsystem-match=block
@@ -255,13 +255,24 @@ for attempt in 1 2 3 4 5; do
   pools_exist=false
   devices_busy=false
   
-  # Check for ANY pools that might conflict
-  if zpool import 2>/dev/null | grep -E "(${DISK}|${POOL_B}|${POOL_R})" >/dev/null; then
+  # Check for our specific pools by name (more precise than grep patterns)
+  if zpool list "$POOL_B" >/dev/null 2>&1; then
     pools_exist=true
   fi
-  if zpool list 2>/dev/null | grep -E "(${DISK}|${POOL_B}|${POOL_R})" >/dev/null; then
+  if zpool list "$POOL_R" >/dev/null 2>&1; then
     pools_exist=true
   fi
+  
+  # Check for importable pools that use our devices
+  for partition in "${DISK}2" "${DISK}3"; do
+    if [ -b "$partition" ]; then
+      # Check if any importable pool claims this device
+      if zpool import 2>/dev/null | grep -q "$partition"; then
+        pools_exist=true
+        break
+      fi
+    fi
+  done
   
   # Check device availability with multiple methods
   for partition in "${DISK}2" "${DISK}3"; do
@@ -276,6 +287,11 @@ for attempt in 1 2 3 4 5; do
         devices_busy=true
         break
       fi
+      # Check if device has ZFS signatures
+      if blkid "$partition" 2>/dev/null | grep -q "TYPE.*zfs"; then
+        devices_busy=true
+        break
+      fi
     fi
   done
   
@@ -285,12 +301,32 @@ for attempt in 1 2 3 4 5; do
   fi
   
   if [ $attempt -eq 5 ]; then
-    if [ "$pools_exist" = true ]; then
-      warn "WARNING: Pools still detected after nuclear cleanup - forcing creation anyway"
-    fi
-    if [ "$devices_busy" = true ]; then
-      warn "WARNING: Devices still busy after nuclear cleanup - forcing creation anyway"
-    fi
+    # Final attempt: force destroy any remaining pools and clear all ZFS signatures
+    warn "WARNING: Final cleanup attempt - destroying any remaining ZFS state"
+    
+    # Try to import and destroy any pools that might be using our devices
+    zpool import -a -N 2>/dev/null || true
+    for pool in $(zpool list -H -o name 2>/dev/null); do
+      if zpool status "$pool" 2>/dev/null | grep -E "(${DISK}2|${DISK}3)" >/dev/null; then
+        zpool destroy -f "$pool" 2>/dev/null || true
+      fi
+    done
+    
+    # Force clear any remaining ZFS labels
+    for partition in "${DISK}2" "${DISK}3"; do
+      if [ -b "$partition" ]; then
+        zpool labelclear -f "$partition" 2>/dev/null || true
+        wipefs -af "$partition" 2>/dev/null || true
+        dd if=/dev/zero of="$partition" bs=1M count=1 2>/dev/null || true
+      fi
+    done
+    
+    # Unload and reload ZFS modules one final time
+    modprobe -r zfs 2>/dev/null || true
+    sleep 3
+    modprobe zfs 2>/dev/null || true
+    sleep 2
+    break
   else
     warn "Nuclear cleanup attempt $attempt failed, retrying with even more aggression"
     
