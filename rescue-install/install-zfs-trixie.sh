@@ -288,6 +288,8 @@ install -d -m1777 /var/tmp /tmp
 # hostid + cache + bootfs
 # Generate and save hostid to ensure ZFS pools can be imported automatically
 if command -v zgenhostid >/dev/null 2>&1; then
+    # Remove existing hostid file if present to avoid "File exists" error
+    [ -f /etc/hostid ] && rm -f /etc/hostid
     # Generate a hostid and save it to /etc/hostid for persistent identification
     zgenhostid
     # Verify the hostid was written correctly
@@ -300,6 +302,8 @@ if command -v zgenhostid >/dev/null 2>&1; then
     fi
 else
     warn "zgenhostid not available, using fallback hostid generation"
+    # Remove existing hostid file if present to ensure clean state
+    [ -f /etc/hostid ] && rm -f /etc/hostid
     # Fallback: manually create hostid file
     printf "$(hostid | cut -c 7-8 | xxd -r -p; hostid | cut -c 5-6 | xxd -r -p; hostid | cut -c 3-4 | xxd -r -p; hostid | cut -c 1-2 | xxd -r -p)" > /etc/hostid
 fi
