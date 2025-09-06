@@ -153,7 +153,50 @@ apt-get -y install dkms build-essential "linux-headers-$(uname -r)" zfs-dkms zfs
 modprobe zfs || die "zfs modprobe failed"
 ok "Rescue prereqs"
 
-# --- 1) partition ---
+# --- 1) ZFS cleanup before partitioning ---
+b "ZFS cleanup before partitioning $DISK"
+
+# Check if any existing ZFS pools need cleanup before we partition
+cleanup_needed=false
+
+# Check for our target pools by name
+if zpool list "$POOL_B" >/dev/null 2>&1 || zpool list "$POOL_R" >/dev/null 2>&1; then
+  cleanup_needed=true
+fi
+
+# Check for importable pools that might conflict
+if zpool import 2>/dev/null | grep -E "(pool|$POOL_B|$POOL_R)" >/dev/null; then
+  cleanup_needed=true
+fi
+
+if [ "$cleanup_needed" = true ]; then
+  b "Cleaning up existing ZFS pools"
+  
+  # Export and destroy our target pools if they exist
+  for pool in "$POOL_B" "$POOL_R"; do
+    if zpool list "$pool" >/dev/null 2>&1; then
+      b "Destroying existing pool $pool"
+      zpool export -f "$pool" 2>/dev/null || true
+      zpool destroy -f "$pool" 2>/dev/null || true
+    fi
+    
+    # Also try to import and destroy if it's available for import
+    if zpool import -N "$pool" >/dev/null 2>&1; then
+      zpool destroy -f "$pool" 2>/dev/null || true
+    fi
+  done
+  
+  # Clear ZFS caches
+  rm -f /etc/zfs/zpool.cache* 2>/dev/null || true
+  rm -rf /etc/zfs/zfs-list.cache* 2>/dev/null || true
+  rm -rf /run/zfs/* 2>/dev/null || true
+  
+  ok "ZFS cleanup completed"
+else
+  b "No existing ZFS pools found, skipping cleanup"
+fi
+
+# --- 2) partition ---
 b "Partitioning $DISK"
 sgdisk -Z "$DISK"
 if [ "$BOOTMODE" = uefi ]; then
@@ -162,318 +205,29 @@ if [ "$BOOTMODE" = uefi ]; then
 else
   sgdisk -n1:1M:+1M -t1:EF02 "$DISK"; sgdisk -n2:0:+2G -t2:BF01 "$DISK"; sgdisk -n3:0:0 -t3:BF01 "$DISK"
 fi
-ok "Partitioned"
 
-# --- 2) pools ---
-b "Creating ZFS pools"
-
-# NUCLEAR ZFS cleanup logic to handle persistent pool conflicts
-# This completely resets ZFS state to eliminate any possible conflicts
-
-b "Starting nuclear ZFS cleanup for $DISK"
-
-# Step 1: Kill all ZFS-related processes that might hold device locks (but not this script)
-# Be more specific to avoid killing this script itself
-pkill -f "^zpool" 2>/dev/null || true
-pkill -f "^zfs " 2>/dev/null || true
-pkill -f "^zed" 2>/dev/null || true
-pkill -f "/sbin/zfs" 2>/dev/null || true
-pkill -f "/usr/sbin/zfs" 2>/dev/null || true
+# Force kernel to recognize new partitions
+partprobe "$DISK" 2>/dev/null || true
 sleep 2
 
-# Step 2: Handle our specific target pools with extreme prejudice
-for pool in "$POOL_B" "$POOL_R"; do
-  # Try multiple approaches to eliminate the pool
-  if zpool list "$pool" >/dev/null 2>&1; then
-    b "Destroying existing pool $pool"
-    zpool export -f "$pool" 2>/dev/null || true
-    sleep 1
-    zpool destroy -f "$pool" 2>/dev/null || true
-  fi
-  
-  # Also try to import and destroy if it's in limbo
-  if zpool import -N "$pool" >/dev/null 2>&1; then
-    zpool destroy -f "$pool" 2>/dev/null || true
-  fi
-done
+ok "Partitioned"
 
-# Step 3: Nuclear option - unload ZFS modules to clear all kernel state
-b "Unloading ZFS modules to clear kernel state"
-modprobe -r zfs 2>/dev/null || true
-modprobe -r spl 2>/dev/null || true
-sleep 3
+# --- 3) pools ---
+b "Creating ZFS pools"
 
-# Step 4: Clear all ZFS caches and state files more thoroughly
-rm -f /etc/zfs/zpool.cache* 2>/dev/null || true
-rm -rf /etc/zfs/zfs-list.cache* 2>/dev/null || true
-rm -rf /run/zfs/* 2>/dev/null || true
-rm -rf /var/lib/zfs/* 2>/dev/null || true
-rm -f /tmp/zpool.cache* 2>/dev/null || true
-
-# Step 5: AGGRESSIVE device clearing before reloading modules
+# Check if partitions exist and wait for them to be available
 for partition in "${DISK}2" "${DISK}3"; do
-  if [ -b "$partition" ]; then
-    b "Nuclear device clearing for $partition"
-    
-    # Kill any processes using the device
-    fuser -km "$partition" 2>/dev/null || true
-    sleep 1
-    
-    # Multiple aggressive clearing passes
-    for _ in 1 2 3 4 5; do
-      # Zero out first 100MB and last 100MB (where ZFS metadata lives)
-      dd if=/dev/zero of="$partition" bs=1M count=100 2>/dev/null || true
-      dd if=/dev/zero of="$partition" bs=1M seek=$(($(blockdev --getsize64 "$partition")/1048576 - 100)) count=100 2>/dev/null || true
-      
-      # Clear specific ZFS label areas
-      dd if=/dev/zero of="$partition" bs=512 count=16384 2>/dev/null || true
-      dd if=/dev/zero of="$partition" bs=512 seek=$(($(blockdev --getsz "$partition") - 16384)) count=16384 2>/dev/null || true
-      
-      # Use wipefs for filesystem signatures
-      wipefs -af "$partition" 2>/dev/null || true
-      
-      sync
-      sleep 1
-    done
-  fi
-done
-
-# Step 6: Force kernel to forget about old partition state
-for _ in 1 2 3 4 5; do
-  partprobe "$DISK" 2>/dev/null || true
-  udevadm settle --timeout=15
-  udevadm trigger --subsystem-match=block
-  udevadm settle --timeout=15
-  sleep 2
-done
-
-# Step 7: Reload ZFS modules with fresh state
-b "Reloading ZFS modules"
-modprobe zfs || die "Failed to reload ZFS modules"
-sleep 3
-
-# Step 8: Final verification with comprehensive checks and aggressive retry
-for attempt in 1 2 3 4 5; do
-  pools_exist=false
-  devices_busy=false
-  
-  # Check for our specific pools by name (more precise than grep patterns)
-  if zpool list "$POOL_B" >/dev/null 2>&1; then
-    pools_exist=true
-    [ $attempt -eq 5 ] && warn "Pool $POOL_B still exists in zpool list"
-  fi
-  if zpool list "$POOL_R" >/dev/null 2>&1; then
-    pools_exist=true
-    [ $attempt -eq 5 ] && warn "Pool $POOL_R still exists in zpool list"
-  fi
-  
-  # Check for importable pools more reliably by actually trying to import by name
-  if zpool import -N "$POOL_B" >/dev/null 2>&1; then
-    pools_exist=true
-    [ $attempt -eq 5 ] && warn "Pool $POOL_B can still be imported"
-    # Try to import and destroy it immediately
-    zpool import -N "$POOL_B" 2>/dev/null && zpool destroy -f "$POOL_B" 2>/dev/null || true
-  fi
-  if zpool import -N "$POOL_R" >/dev/null 2>&1; then
-    pools_exist=true
-    [ $attempt -eq 5 ] && warn "Pool $POOL_R can still be imported"
-    # Try to import and destroy it immediately
-    zpool import -N "$POOL_R" 2>/dev/null && zpool destroy -f "$POOL_R" 2>/dev/null || true
-  fi
-  
-  # Check device availability with multiple methods
-  for partition in "${DISK}2" "${DISK}3"; do
+  for i in 1 2 3 4 5; do
     if [ -b "$partition" ]; then
-      # Test actual write access
-      if ! dd if=/dev/zero of="$partition" bs=512 count=1 2>/dev/null; then
-        devices_busy=true
-        break
-      fi
-      # Test with lsof
-      if lsof "$partition" >/dev/null 2>&1; then
-        devices_busy=true
-        break
-      fi
-      # Test with fuser
-      if fuser "$partition" >/dev/null 2>&1; then
-        devices_busy=true
-        break
-      fi
-      # Check if device has ZFS signatures
-      if blkid "$partition" 2>/dev/null | grep -q "TYPE.*zfs"; then
-        devices_busy=true
-        break
-      fi
-      # Check if device is mentioned in any pool import output
-      if zpool import 2>/dev/null | grep -q "$partition"; then
-        devices_busy=true
-        break
-      fi
+      break
     fi
+    b "Waiting for partition $partition to appear (attempt $i/5)"
+    partprobe "$DISK" 2>/dev/null || true
+    udevadm settle --timeout=5
+    sleep 1
   done
-  
-  if [ "$pools_exist" = false ] && [ "$devices_busy" = false ]; then
-    b "Nuclear cleanup successful on attempt $attempt"
-    break
-  fi
-  
-  if [ $attempt -eq 5 ]; then
-    # Final attempt: force destroy any remaining pools and clear all ZFS signatures
-    warn "WARNING: Final cleanup attempt - destroying any remaining ZFS state"
-    
-    # Try to import and destroy any pools that might be using our devices
-    # Import all pools to ensure we can see everything
-    zpool import -a -N 2>/dev/null || true
-    sleep 2
-    
-    # More thorough pool destruction
-    for pool in $(zpool list -H -o name 2>/dev/null); do
-      if zpool status "$pool" 2>/dev/null | grep -E "(${DISK}2|${DISK}3)" >/dev/null; then
-        warn "Destroying pool $pool that uses target devices"
-        zpool export -f "$pool" 2>/dev/null || true
-        zpool destroy -f "$pool" 2>/dev/null || true
-      fi
-    done
-    
-    # Also destroy our specific target pools if they exist
-    for pool_name in "$POOL_B" "$POOL_R"; do
-      if zpool list "$pool_name" >/dev/null 2>&1; then
-        warn "Force destroying target pool $pool_name"
-        zpool export -f "$pool_name" 2>/dev/null || true
-        zpool destroy -f "$pool_name" 2>/dev/null || true
-      fi
-    done
-    
-    # Force clear any remaining ZFS labels with multiple tools
-    for partition in "${DISK}2" "${DISK}3"; do
-      if [ -b "$partition" ]; then
-        warn "Final aggressive clearing of $partition"
-        # Kill any remaining processes using the device
-        fuser -km "$partition" 2>/dev/null || true
-        sleep 1
-        
-        # Multiple clearing attempts with different tools
-        zpool labelclear -f "$partition" 2>/dev/null || true
-        wipefs -af "$partition" 2>/dev/null || true
-        
-        # Zero out critical areas where ZFS metadata lives (more comprehensive)
-        # Clear first 1GB and last 1GB to ensure all ZFS metadata is gone
-        dd if=/dev/zero of="$partition" bs=1M count=1024 2>/dev/null || true
-        if [ -b "$partition" ]; then
-          # Get device size and clear the end
-          device_size=$(blockdev --getsize64 "$partition" 2>/dev/null || echo "0")
-          if [ "$device_size" -gt 1073741824 ]; then  # > 1GB
-            end_offset=$(( (device_size / 1048576) - 1024 ))  # 1GB from end in MB
-            dd if=/dev/zero of="$partition" bs=1M seek="$end_offset" count=1024 2>/dev/null || true
-          fi
-        fi
-        
-        # Clear filesystem signatures one more time
-        wipefs -af "$partition" 2>/dev/null || true
-        
-        sync
-      fi
-    done
-    
-    # Clear the entire disk's partition table and recreate it
-    warn "Recreating partition table on $DISK"
-    sgdisk --zap-all "$DISK" 2>/dev/null || true
-    partprobe "$DISK" 2>/dev/null || true
-    sleep 2
-    
-    # Recreate the partitions we need
-    sgdisk -n1:1M:+1G -t1:EF00 "$DISK" 2>/dev/null || true
-    sgdisk -n2:0:+2G -t2:BE00 "$DISK" 2>/dev/null || true  
-    sgdisk -n3:0:0 -t3:BF00 "$DISK" 2>/dev/null || true
-    partprobe "$DISK" 2>/dev/null || true
-    sleep 2
-    
-    # Force kernel refresh
-    for _ in 1 2 3; do
-      partprobe "$DISK" 2>/dev/null || true
-      udevadm settle --timeout=10
-      sleep 1
-    done
-    
-    # Unload and reload ZFS modules one final time
-    modprobe -r zfs 2>/dev/null || true
-    sleep 3
-    modprobe zfs 2>/dev/null || true
-    sleep 3
-    
-    # Final verification - if this still fails, we need to stop completely
-    final_pools_exist=false
-    final_devices_busy=false
-    
-    # Check for our specific pools by name with debugging
-    if zpool list "$POOL_B" >/dev/null 2>&1; then
-      final_pools_exist=true
-      warn "Final check: Pool $POOL_B still in zpool list"
-    fi
-    if zpool list "$POOL_R" >/dev/null 2>&1; then
-      final_pools_exist=true
-      warn "Final check: Pool $POOL_R still in zpool list"
-    fi
-    
-    # Check for importable pools by name
-    if zpool import -N "$POOL_B" >/dev/null 2>&1; then
-      final_pools_exist=true
-      warn "Final check: Pool $POOL_B still importable"
-    fi
-    if zpool import -N "$POOL_R" >/dev/null 2>&1; then
-      final_pools_exist=true
-      warn "Final check: Pool $POOL_R still importable"
-    fi
-    
-    # Check device availability with enhanced debugging
-    for partition in "${DISK}2" "${DISK}3"; do
-      if [ -b "$partition" ]; then
-        # Test actual write access
-        if ! dd if=/dev/zero of="$partition" bs=512 count=1 2>/dev/null; then
-          final_devices_busy=true
-          warn "Final check: Cannot write to $partition"
-          break
-        fi
-        # Check if device has ZFS signatures
-        if blkid "$partition" 2>/dev/null | grep -q "TYPE.*zfs"; then
-          final_devices_busy=true
-          warn "Final check: $partition still has ZFS signature: $(blkid "$partition" 2>/dev/null)"
-          break
-        fi
-      else
-        warn "Final check: $partition does not exist as block device"
-      fi
-    done
-    
-    if [ "$final_pools_exist" = true ] || [ "$final_devices_busy" = true ]; then
-      die "FATAL: Unable to clear ZFS state after all cleanup attempts. Pools exist: $final_pools_exist, Devices busy: $final_devices_busy. Manual intervention required - try rebooting the system."
-    fi
-    
-    break
-  else
-    warn "Nuclear cleanup attempt $attempt failed, retrying with even more aggression"
-    
-    # Even more aggressive retry cleanup (but not killing this script)
-    pkill -9 -f "^zpool" 2>/dev/null || true
-    pkill -9 -f "^zfs " 2>/dev/null || true
-    pkill -9 -f "^zed" 2>/dev/null || true
-    for partition in "${DISK}2" "${DISK}3"; do
-      if [ -b "$partition" ]; then
-        fuser -km "$partition" 2>/dev/null || true
-        # Zero out even more of the device
-        dd if=/dev/zero of="$partition" bs=1M count=200 2>/dev/null || true
-      fi
-    done
-    
-    # Reload modules again
-    modprobe -r zfs 2>/dev/null || true
-    sleep 2
-    modprobe zfs 2>/dev/null || true
-    sleep 3
-  fi
+  [ -b "$partition" ] || die "Partition $partition not found after partitioning"
 done
-
-b "Nuclear ZFS cleanup completed"
 
 [ "$ENCRYPT" = yes ] && ENC=(-O encryption=aes-256-gcm -O keyformat=passphrase) || ENC=()
 zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
@@ -484,7 +238,7 @@ zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
   -O mountpoint=none -O canmount=off "${ENC[@]}" "$POOL_R" "${DISK}3"
 ok "Pools created"
 
-# --- 3) datasets + temp mounts ---
+# --- 4) datasets + temp mounts ---
 ensure_ds(){ zfs list -H -o name "$1" >/dev/null 2>&1 || zfs create "${@:2}" "$1"; }
 ensure_mount(){ local ds="$1" mp="$2"; zfs set mountpoint="$mp" "$ds"; [ "$(zfs get -H -o value mounted "$ds")" = yes ] || zfs mount "$ds"; }
 
@@ -506,13 +260,13 @@ ensure_ds "$POOL_R/home"              -o mountpoint=/mnt/home
 ensure_ds "$POOL_R/srv"               -o mountpoint=/mnt/srv
 ok "Datasets mounted at /mnt"
 
-# --- 4) debootstrap ---
+# --- 5) debootstrap ---
 b "Debootstrap trixie"
 debootstrap trixie /mnt http://deb.debian.org/debian/
 [ -x /mnt/bin/sh ] || die "bootstrap incomplete"
 ok "Base system"
 
-# --- 5) post-chroot payload (NO mountpoint flips here) ---
+# --- 6) post-chroot payload (NO mountpoint flips here) ---
 b "Prepare post-chroot"
 
 # Calculate ARC bytes for environment variable
@@ -676,7 +430,7 @@ export PERMIT_ROOT_LOGIN PASSWORD_AUTH
 
 ok "post-chroot prepared"
 
-# --- 6) run post-chroot ---
+# --- 7) run post-chroot ---
 b "Finalize in chroot"
 for d in dev proc sys run; do mount --rbind "/$d" "/mnt/$d"; mount --make-rslave "/mnt/$d"; done
 mkdir -p /mnt/etc; [ -e /mnt/etc/resolv.conf ] || : >/mnt/etc/resolv.conf
@@ -686,7 +440,7 @@ chroot /mnt test -s /boot/grub/grub.cfg
 chroot /mnt /bin/bash -lc 'command -v sshd && sshd -t'
 ok "Chroot finalize OK"
 
-# --- 7) teardown (unmount first, THEN set runtime mountpoints), export ---
+# --- 8) teardown (unmount first, THEN set runtime mountpoints), export ---
 b "Teardown + runtime mountpoints"
 umount -l /mnt/etc/resolv.conf 2>/dev/null || true
 for m in /mnt/dev/pts /mnt/dev /mnt/proc /mnt/sys /mnt/run; do umount -l "$m" 2>/dev/null || true; done
