@@ -172,8 +172,13 @@ b "Creating ZFS pools"
 
 b "Starting nuclear ZFS cleanup for $DISK"
 
-# Step 1: Kill all ZFS-related processes that might hold device locks
-pkill -f "zfs|zpool|zed" 2>/dev/null || true
+# Step 1: Kill all ZFS-related processes that might hold device locks (but not this script)
+# Be more specific to avoid killing this script itself
+pkill -f "^zpool" 2>/dev/null || true
+pkill -f "^zfs " 2>/dev/null || true
+pkill -f "^zed" 2>/dev/null || true
+pkill -f "/sbin/zfs" 2>/dev/null || true
+pkill -f "/usr/sbin/zfs" 2>/dev/null || true
 sleep 2
 
 # Step 2: Handle our specific target pools with extreme prejudice
@@ -289,8 +294,10 @@ for attempt in 1 2 3 4 5; do
   else
     warn "Nuclear cleanup attempt $attempt failed, retrying with even more aggression"
     
-    # Even more aggressive retry cleanup
-    pkill -9 -f "zfs|zpool|zed" 2>/dev/null || true
+    # Even more aggressive retry cleanup (but not killing this script)
+    pkill -9 -f "^zpool" 2>/dev/null || true
+    pkill -9 -f "^zfs " 2>/dev/null || true
+    pkill -9 -f "^zed" 2>/dev/null || true
     for partition in "${DISK}2" "${DISK}3"; do
       if [ -b "$partition" ]; then
         fuser -km "$partition" 2>/dev/null || true
