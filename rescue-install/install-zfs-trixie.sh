@@ -340,14 +340,14 @@ if command -v zgenhostid >/dev/null 2>&1; then
     zgenhostid
     # Verify the hostid was written correctly
     if [ -f /etc/hostid ]; then
-        ok "Generated hostid: $(hostid)"
+        echo "[OK] Generated hostid: $(hostid)"
     else
         # Fallback: manually create hostid file if zgenhostid didn't create it
         printf "$(hostid | cut -c 7-8 | xxd -r -p; hostid | cut -c 5-6 | xxd -r -p; hostid | cut -c 3-4 | xxd -r -p; hostid | cut -c 1-2 | xxd -r -p)" > /etc/hostid
-        ok "Created hostid file manually: $(hostid)"
+        echo "[OK] Created hostid file manually: $(hostid)"
     fi
 else
-    warn "zgenhostid not available, using fallback hostid generation"
+    echo "[WARN] zgenhostid not available, using fallback hostid generation"
     # Fallback: manually create hostid file
     printf "$(hostid | cut -c 7-8 | xxd -r -p; hostid | cut -c 5-6 | xxd -r -p; hostid | cut -c 3-4 | xxd -r -p; hostid | cut -c 1-2 | xxd -r -p)" > /etc/hostid
 fi
