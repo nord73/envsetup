@@ -27,3 +27,8 @@ Thumbs.db
 .env.local
 .env.production
 .env.secrets
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
