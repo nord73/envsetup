@@ -125,6 +125,14 @@ trap 'die "line $LINENO"' ERR
 [ "$(id -u)" -eq 0 ] || die "run as root"
 [ -b "$DISK" ] || die "disk $DISK missing"
 
+# Validate that DISK is a whole disk, not a partition
+# NVMe devices: /dev/nvme0n1 (disk) vs /dev/nvme0n1p1 (partition)
+# SATA/SCSI devices: /dev/sda (disk) vs /dev/sda1 (partition)
+# Virtual devices: /dev/vda (disk) vs /dev/vda1 (partition)
+if [[ "$DISK" =~ p[0-9]+$ ]] || [[ "$DISK" =~ ^/dev/[sv]d[a-z][0-9]+$ ]]; then
+  die "DISK=$DISK appears to be a partition. Please specify the whole disk (e.g., /dev/sda instead of /dev/sda1, or /dev/nvme0n1 instead of /dev/nvme0n1p1)"
+fi
+
 BOOTMODE=bios; [ -d /sys/firmware/efi ] && BOOTMODE=uefi
 b "Rescue: $BOOTMODE  •  Will WIPE $DISK"; ask "Proceed?" || die "aborted"
 
