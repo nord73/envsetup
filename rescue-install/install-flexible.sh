@@ -23,6 +23,7 @@ CODENAME="${CODENAME:-auto}"  # auto, bookworm, trixie, noble, etc.
 PARTITION_MODE="${PARTITION_MODE:-full-zfs}"  # full-zfs, fixed-root-zfs
 ROOT_SIZE="${ROOT_SIZE:-20G}"  # Size for root partition in fixed-root-zfs mode
 ROOT_FS="${ROOT_FS:-ext4}"     # Filesystem for root partition: ext4, xfs, btrfs
+BOOT_FS="${BOOT_FS:-}"         # Boot filesystem: auto (zfs for full-zfs, ext4 for fixed-root-zfs), zfs, ext4
 
 # ZFS configuration
 POOL_R="${POOL_R:-rpool}"
@@ -92,6 +93,29 @@ detect_distro() {
     esac
 }
 
+# --- boot filesystem configuration ---
+configure_boot_fs() {
+    if [ "$BOOT_FS" = "" ]; then
+        case "$PARTITION_MODE" in
+            full-zfs)
+                BOOT_FS="zfs"
+                ;;
+            fixed-root-zfs)
+                BOOT_FS="ext4"
+                ;;
+            *)
+                die "Unknown partition mode: $PARTITION_MODE"
+                ;;
+        esac
+    fi
+    
+    # Validate boot filesystem choice
+    case "$BOOT_FS" in
+        zfs|ext4) ;;
+        *) die "Unsupported boot filesystem: $BOOT_FS (supported: zfs, ext4)" ;;
+    esac
+}
+
 # --- partitioning functions ---
 create_partitions_full_zfs() {
     b "Creating full ZFS partitioning on $DISK"
@@ -109,19 +133,32 @@ create_partitions_full_zfs() {
 }
 
 create_partitions_fixed_root() {
-    b "Creating fixed root + ZFS partitioning on $DISK"
+    b "Creating fixed root + ZFS partitioning on $DISK (boot: $BOOT_FS)"
     sgdisk -Z "$DISK"
     if [ "$BOOTMODE" = uefi ]; then
         sgdisk -n1:1M:+1G -t1:EF00 "$DISK"      # EFI System Partition
-        sgdisk -n2:0:+2G -t2:BF01 "$DISK"       # Boot pool (ZFS)
+        if [ "$BOOT_FS" = "zfs" ]; then
+            sgdisk -n2:0:+2G -t2:BF01 "$DISK"       # Boot pool (ZFS)
+        else
+            sgdisk -n2:0:+2G -t2:8300 "$DISK"       # Boot partition (ext4)
+        fi
         sgdisk -n3:0:+${ROOT_SIZE} -t3:8300 "$DISK"  # Root partition (traditional)
         sgdisk -n4:0:0 -t4:BF01 "$DISK"         # Remaining space for ZFS
         mkfs.vfat -F32 -n EFI "${DISK}1"
     else
         sgdisk -n1:1M:+1M -t1:EF02 "$DISK"      # BIOS boot partition
-        sgdisk -n2:0:+2G -t2:BF01 "$DISK"       # Boot pool (ZFS)
+        if [ "$BOOT_FS" = "zfs" ]; then
+            sgdisk -n2:0:+2G -t2:BF01 "$DISK"       # Boot pool (ZFS)
+        else
+            sgdisk -n2:0:+2G -t2:8300 "$DISK"       # Boot partition (ext4)
+        fi
         sgdisk -n3:0:+${ROOT_SIZE} -t3:8300 "$DISK"  # Root partition (traditional)
         sgdisk -n4:0:0 -t4:BF01 "$DISK"         # Remaining space for ZFS
+    fi
+    
+    # Create filesystem on boot partition (if ext4)
+    if [ "$BOOT_FS" = "ext4" ]; then
+        mkfs.ext4 -L boot "${DISK}2"
     fi
     
     # Create filesystem on root partition
@@ -158,13 +195,15 @@ create_zfs_pools_full() {
 }
 
 create_zfs_pools_fixed_root() {
-    b "Creating ZFS pools (fixed root mode)"
+    b "Creating ZFS pools (fixed root mode, boot: $BOOT_FS)"
     [ "$ENCRYPT" = yes ] && ENC=(-O encryption=aes-256-gcm -O keyformat=passphrase) || ENC=()
     
-    # Boot pool
-    zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
-        -o compatibility=grub2 -O atime=off -O xattr=sa -O acltype=posixacl -O compression=lz4 \
-        -O mountpoint=none -O canmount=off "$POOL_B" "${DISK}2"
+    # Boot pool (only if using ZFS for boot)
+    if [ "$BOOT_FS" = "zfs" ]; then
+        zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
+            -o compatibility=grub2 -O atime=off -O xattr=sa -O acltype=posixacl -O compression=lz4 \
+            -O mountpoint=none -O canmount=off "$POOL_B" "${DISK}2"
+    fi
     
     # Data pool (on remaining space)
     zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
@@ -200,17 +239,23 @@ create_datasets_fixed_root() {
     ensure_ds(){ zfs list -H -o name "$1" >/dev/null 2>&1 || zfs create "${@:2}" "$1"; }
     ensure_mount(){ local ds="$1" mp="$2"; zfs set mountpoint="$mp" "$ds"; [ "$(zfs get -H -o value mounted "$ds")" = yes ] || zfs mount "$ds"; }
 
-    b "Setting up filesystems (fixed root mode)"
+    b "Setting up filesystems (fixed root mode, boot: $BOOT_FS)"
     
     # Mount root partition
     mkdir -p /mnt
     mount "${DISK}3" /mnt
     
-    # Create boot directory and mount ZFS boot pool
+    # Handle boot filesystem based on type
     mkdir -p /mnt/boot
-    ensure_ds "$POOL_B/BOOT" -o canmount=off -o mountpoint=none
-    ensure_ds "$POOL_B/BOOT/$DISTRO"
-    ensure_mount "$POOL_B/BOOT/$DISTRO" /mnt/boot
+    if [ "$BOOT_FS" = "zfs" ]; then
+        # Create and mount ZFS boot pool
+        ensure_ds "$POOL_B/BOOT" -o canmount=off -o mountpoint=none
+        ensure_ds "$POOL_B/BOOT/$DISTRO"
+        ensure_mount "$POOL_B/BOOT/$DISTRO" /mnt/boot
+    else
+        # Mount ext4 boot partition
+        mount "${DISK}2" /mnt/boot
+    fi
 
     # Create ZFS datasets for data (mounted under /mnt for now)
     ensure_ds "$POOL_R/var"               -o mountpoint=/mnt/var
@@ -249,7 +294,8 @@ main() {
     BOOTMODE=bios; [ -d /sys/firmware/efi ] && BOOTMODE=uefi
     
     detect_distro
-    b "Detected: $DISTRO $CODENAME  •  Boot: $BOOTMODE  •  Mode: $PARTITION_MODE"
+    configure_boot_fs
+    b "Detected: $DISTRO $CODENAME  •  Boot: $BOOTMODE  •  Mode: $PARTITION_MODE  •  Boot FS: $BOOT_FS"
     b "Will WIPE $DISK"
     ask "Proceed?" || die "aborted"
 
@@ -319,7 +365,7 @@ trap 'echo "[FAIL] line $LINENO"; exit 1' ERR
 # Variables will be substituted by the main script
 HN="@HOSTNAME@"; TZ="@TZ@"; DISK="@DISK@"; RP="@POOL_R@"; BP="@POOL_B@"
 DISTRO="@DISTRO@"; CODENAME="@CODENAME@"; PARTITION_MODE="@PARTITION_MODE@"
-ARC_BYTES=@ARC_BYTES@; ROOT_FS="@ROOT_FS@"
+ARC_BYTES=@ARC_BYTES@; ROOT_FS="@ROOT_FS@"; BOOT_FS="@BOOT_FS@"
 NEW_USER='@NEW_USER@'; NEW_USER_SUDO='@NEW_USER_SUDO@'
 SSH_IMPORT_IDS='@SSH_IMPORT_IDS@'; AUTH_KEYS='@AUTH_KEYS@'; AUTH_URLS='@AUTH_URLS@'
 PERMIT='@PERMIT@'; PASSAUTH='@PASSAUTH@'
@@ -406,10 +452,17 @@ else
             ;;
     esac
     
+    # Add boot partition to fstab if using ext4 boot
+    if [ "$BOOT_FS" = "ext4" ]; then
+        echo "LABEL=boot /boot ext4 defaults 0 2" >>/etc/fstab
+    fi
+    
     # ZFS setup for data pools only
     command -v zgenhostid >/dev/null 2>&1 && zgenhostid "$(hostid)" || true
     zpool set cachefile=/etc/zfs/zpool.cache "$RP" || true
-    zpool set cachefile=/etc/zfs/zpool.cache "$BP" || true
+    if [ "$BOOT_FS" = "zfs" ]; then
+        zpool set cachefile=/etc/zfs/zpool.cache "$BP" || true
+    fi
     
     echo "options zfs zfs_arc_max=$ARC_BYTES" >/etc/modprobe.d/zfs.conf
 fi
@@ -435,7 +488,9 @@ else
 fi
 
 # Install and configure GRUB
-mountpoint -q /boot || zfs mount "$BP/BOOT/$DISTRO" || true
+if [ "$BOOT_FS" = "zfs" ]; then
+    mountpoint -q /boot || zfs mount "$BP/BOOT/$DISTRO" || true
+fi
 if [ "$PARTITION_MODE" = "full-zfs" ]; then
     TMPDIR=/tmp update-initramfs -u
 fi
@@ -504,7 +559,7 @@ EOS
     sed -i "s|@HOSTNAME@|$HOSTNAME|g; s|@TZ@|$TZ|g; s|@DISK@|$DISK|g" /mnt/root/post-chroot.sh
     sed -i "s|@POOL_R@|$POOL_R|g; s|@POOL_B@|$POOL_B|g" /mnt/root/post-chroot.sh
     sed -i "s|@DISTRO@|$DISTRO|g; s|@CODENAME@|$CODENAME|g" /mnt/root/post-chroot.sh
-    sed -i "s|@PARTITION_MODE@|$PARTITION_MODE|g; s|@ROOT_FS@|$ROOT_FS|g" /mnt/root/post-chroot.sh
+    sed -i "s|@PARTITION_MODE@|$PARTITION_MODE|g; s|@ROOT_FS@|$ROOT_FS|g; s|@BOOT_FS@|$BOOT_FS|g" /mnt/root/post-chroot.sh
     sed -i "s|@ARC_BYTES@|$((ARC_MAX_MB*1024*1024))|g" /mnt/root/post-chroot.sh
     sed -i "s|@NEW_USER@|$NEW_USER|g; s|@NEW_USER_SUDO@|$NEW_USER_SUDO|g" /mnt/root/post-chroot.sh
     sed -i "s|@SSH_IMPORT_IDS@|$SSH_IMPORT_IDS|g" /mnt/root/post-chroot.sh
