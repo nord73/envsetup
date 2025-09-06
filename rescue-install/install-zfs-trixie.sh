@@ -170,13 +170,22 @@ if zpool list "$POOL_R" >/dev/null 2>&1; then
   zpool export -f "$POOL_R" 2>/dev/null || zpool destroy -f "$POOL_R" 2>/dev/null || true
 fi
 
-# Check for any pools using our target devices and clean them up
-for partition in "${DISK}1" "${DISK}2" "${DISK}3"; do
-  if pool_using_device=$(zpool status 2>/dev/null | awk -v dev="$partition" '$0 ~ dev {in_pool=1} /pool:/ && in_pool {print $2; in_pool=0}' | head -1); then
-    if [ -n "$pool_using_device" ]; then
-      b "Found pool '$pool_using_device' using device $partition, cleaning up"
-      zpool export -f "$pool_using_device" 2>/dev/null || zpool destroy -f "$pool_using_device" 2>/dev/null || true
+# Clean up any pools using our target devices
+# Get list of all active pools and check each one
+if active_pools=$(zpool list -H -o name 2>/dev/null); then
+  for pool_name in $active_pools; do
+    if zpool status "$pool_name" 2>/dev/null | grep -E "(${DISK}[0-9]+|${DISK})" >/dev/null; then
+      b "Found pool '$pool_name' using device $DISK, cleaning up"
+      zpool export -f "$pool_name" 2>/dev/null || zpool destroy -f "$pool_name" 2>/dev/null || true
     fi
+  done
+fi
+
+# Clear any ZFS labels from the target partitions to ensure clean state
+for partition in "${DISK}2" "${DISK}3"; do
+  if [ -b "$partition" ]; then
+    b "Clearing ZFS labels from $partition"
+    zpool labelclear -f "$partition" 2>/dev/null || true
   fi
 done
 
