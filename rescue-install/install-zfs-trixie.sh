@@ -307,15 +307,24 @@ deb http://deb.debian.org/debian trixie-updates main contrib non-free non-free-f
 SL
 export DEBIAN_FRONTEND=noninteractive
 apt-get -y update
-apt-get -y install locales console-setup ca-certificates curl \
-  linux-image-amd64 linux-headers-amd64 \
-  zfs-dkms zfsutils-linux zfs-initramfs \
-  openssh-server ssh-import-id sudo grub-common cloud-init
 
-# locales before update-locale
+# Setup locales first before installing packages that need locale support
+apt-get -y install locales
 grep -q "^en_US.UTF-8" /etc/locale.gen || echo "en_US.UTF-8 UTF-8" >>/etc/locale.gen
 locale-gen >/dev/null 2>&1 || true
 command -v update-locale >/dev/null 2>&1 && update-locale LANG=en_US.UTF-8 || true
+
+# Set locale environment variables for package installation
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export LC_CTYPE=en_US.UTF-8
+export LC_MESSAGES=en_US.UTF-8
+
+# Now install remaining packages with proper locale environment
+apt-get -y install console-setup ca-certificates curl \
+  linux-image-amd64 linux-headers-amd64 \
+  zfs-dkms zfsutils-linux zfs-initramfs \
+  openssh-server ssh-import-id sudo grub-common cloud-init
 
 # ensure RW env + tmp
 zfs set readonly=off "$RP/ROOT/debian" >/dev/null 2>&1 || true
