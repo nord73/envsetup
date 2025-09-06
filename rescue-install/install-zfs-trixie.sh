@@ -167,36 +167,154 @@ ok "Partitioned"
 # --- 2) pools ---
 b "Creating ZFS pools"
 
-# Clean up any existing pools that might conflict
-# First try to export pools by name (safer than destroy)
-if zpool list "$POOL_B" >/dev/null 2>&1; then
-  b "Exporting existing pool $POOL_B"
-  zpool export -f "$POOL_B" 2>/dev/null || zpool destroy -f "$POOL_B" 2>/dev/null || true
-fi
+# NUCLEAR ZFS cleanup logic to handle persistent pool conflicts
+# This completely resets ZFS state to eliminate any possible conflicts
 
-if zpool list "$POOL_R" >/dev/null 2>&1; then
-  b "Exporting existing pool $POOL_R"
-  zpool export -f "$POOL_R" 2>/dev/null || zpool destroy -f "$POOL_R" 2>/dev/null || true
-fi
+b "Starting nuclear ZFS cleanup for $DISK"
 
-# Clean up any pools using our target devices
-# Get list of all active pools and check each one
-if active_pools=$(zpool list -H -o name 2>/dev/null); then
-  for pool_name in $active_pools; do
-    if zpool status "$pool_name" 2>/dev/null | grep -E "(${DISK}[0-9]+|${DISK})" >/dev/null; then
-      b "Found pool '$pool_name' using device $DISK, cleaning up"
-      zpool export -f "$pool_name" 2>/dev/null || zpool destroy -f "$pool_name" 2>/dev/null || true
-    fi
-  done
-fi
+# Step 1: Kill all ZFS-related processes that might hold device locks (but not this script)
+# Be more specific to avoid killing this script itself
+pkill -f "^zpool" 2>/dev/null || true
+pkill -f "^zfs " 2>/dev/null || true
+pkill -f "^zed" 2>/dev/null || true
+pkill -f "/sbin/zfs" 2>/dev/null || true
+pkill -f "/usr/sbin/zfs" 2>/dev/null || true
+sleep 2
 
-# Clear any ZFS labels from the target partitions to ensure clean state
-for partition in "${DISK}2" "${DISK}3"; do
-  if [ -b "$partition" ]; then
-    b "Clearing ZFS labels from $partition"
-    zpool labelclear -f "$partition" 2>/dev/null || true
+# Step 2: Handle our specific target pools with extreme prejudice
+for pool in "$POOL_B" "$POOL_R"; do
+  # Try multiple approaches to eliminate the pool
+  if zpool list "$pool" >/dev/null 2>&1; then
+    b "Destroying existing pool $pool"
+    zpool export -f "$pool" 2>/dev/null || true
+    sleep 1
+    zpool destroy -f "$pool" 2>/dev/null || true
+  fi
+  
+  # Also try to import and destroy if it's in limbo
+  if zpool import -N "$pool" >/dev/null 2>&1; then
+    zpool destroy -f "$pool" 2>/dev/null || true
   fi
 done
+
+# Step 3: Nuclear option - unload ZFS modules to clear all kernel state
+b "Unloading ZFS modules to clear kernel state"
+modprobe -r zfs 2>/dev/null || true
+modprobe -r spl 2>/dev/null || true
+sleep 3
+
+# Step 4: Clear all ZFS caches and state files
+rm -f /etc/zfs/zpool.cache* 2>/dev/null || true
+rm -rf /etc/zfs/zfs-list.cache* 2>/dev/null || true
+rm -rf /run/zfs/* 2>/dev/null || true
+
+# Step 5: AGGRESSIVE device clearing before reloading modules
+for partition in "${DISK}2" "${DISK}3"; do
+  if [ -b "$partition" ]; then
+    b "Nuclear device clearing for $partition"
+    
+    # Kill any processes using the device
+    fuser -km "$partition" 2>/dev/null || true
+    sleep 1
+    
+    # Multiple aggressive clearing passes
+    for pass in 1 2 3 4 5; do
+      # Zero out first 100MB and last 100MB (where ZFS metadata lives)
+      dd if=/dev/zero of="$partition" bs=1M count=100 2>/dev/null || true
+      dd if=/dev/zero of="$partition" bs=1M seek=$(($(blockdev --getsize64 "$partition")/1048576 - 100)) count=100 2>/dev/null || true
+      
+      # Clear specific ZFS label areas
+      dd if=/dev/zero of="$partition" bs=512 count=16384 2>/dev/null || true
+      dd if=/dev/zero of="$partition" bs=512 seek=$(($(blockdev --getsz "$partition") - 16384)) count=16384 2>/dev/null || true
+      
+      # Use wipefs for filesystem signatures
+      wipefs -af "$partition" 2>/dev/null || true
+      
+      sync
+      sleep 1
+    done
+  fi
+done
+
+# Step 6: Force kernel to forget about old partition state
+for i in 1 2 3 4 5; do
+  partprobe "$DISK" 2>/dev/null || true
+  udevadm settle --timeout=15
+  udevadm trigger --subsystem-match=block
+  udevadm settle --timeout=15
+  sleep 2
+done
+
+# Step 7: Reload ZFS modules with fresh state
+b "Reloading ZFS modules"
+modprobe zfs || die "Failed to reload ZFS modules"
+sleep 3
+
+# Step 8: Final verification with comprehensive checks and aggressive retry
+for attempt in 1 2 3 4 5; do
+  pools_exist=false
+  devices_busy=false
+  
+  # Check for ANY pools that might conflict
+  if zpool import 2>/dev/null | grep -E "(${DISK}|${POOL_B}|${POOL_R})" >/dev/null; then
+    pools_exist=true
+  fi
+  if zpool list 2>/dev/null | grep -E "(${DISK}|${POOL_B}|${POOL_R})" >/dev/null; then
+    pools_exist=true
+  fi
+  
+  # Check device availability with multiple methods
+  for partition in "${DISK}2" "${DISK}3"; do
+    if [ -b "$partition" ]; then
+      # Test actual write access
+      if ! dd if=/dev/zero of="$partition" bs=512 count=1 2>/dev/null; then
+        devices_busy=true
+        break
+      fi
+      # Test with lsof
+      if lsof "$partition" >/dev/null 2>&1; then
+        devices_busy=true
+        break
+      fi
+    fi
+  done
+  
+  if [ "$pools_exist" = false ] && [ "$devices_busy" = false ]; then
+    b "Nuclear cleanup successful on attempt $attempt"
+    break
+  fi
+  
+  if [ $attempt -eq 5 ]; then
+    if [ "$pools_exist" = true ]; then
+      warn "WARNING: Pools still detected after nuclear cleanup - forcing creation anyway"
+    fi
+    if [ "$devices_busy" = true ]; then
+      warn "WARNING: Devices still busy after nuclear cleanup - forcing creation anyway"
+    fi
+  else
+    warn "Nuclear cleanup attempt $attempt failed, retrying with even more aggression"
+    
+    # Even more aggressive retry cleanup (but not killing this script)
+    pkill -9 -f "^zpool" 2>/dev/null || true
+    pkill -9 -f "^zfs " 2>/dev/null || true
+    pkill -9 -f "^zed" 2>/dev/null || true
+    for partition in "${DISK}2" "${DISK}3"; do
+      if [ -b "$partition" ]; then
+        fuser -km "$partition" 2>/dev/null || true
+        # Zero out even more of the device
+        dd if=/dev/zero of="$partition" bs=1M count=200 2>/dev/null || true
+      fi
+    done
+    
+    # Reload modules again
+    modprobe -r zfs 2>/dev/null || true
+    sleep 2
+    modprobe zfs 2>/dev/null || true
+    sleep 3
+  fi
+done
+
+b "Nuclear ZFS cleanup completed"
 
 [ "$ENCRYPT" = yes ] && ENC=(-O encryption=aes-256-gcm -O keyformat=passphrase) || ENC=()
 zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
