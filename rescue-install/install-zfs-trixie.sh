@@ -167,15 +167,23 @@ ok "Partitioned"
 # --- 2) pools ---
 b "Creating ZFS pools"
 
-# Enhanced cleanup: find and clean up ALL pools that might conflict
-# This includes both active pools and importable pools that use our target devices
+# Enhanced cleanup logic to handle all possible ZFS pool conflicts
+# This addresses pools that are active, importable, or have stale cache entries
 
-# First, clear any ZFS cache to avoid stale entries
+# Step 1: Clear ZFS cache first to eliminate stale entries
 if [ -f /etc/zfs/zpool.cache ]; then
   rm -f /etc/zfs/zpool.cache 2>/dev/null || true
 fi
 
-# Step 1: Handle currently imported pools
+# Step 2: Handle our target pools by name first (most direct approach)
+for pool in "$POOL_B" "$POOL_R"; do
+  if zpool list "$pool" >/dev/null 2>&1; then
+    b "Exporting existing pool $pool"
+    zpool export -f "$pool" 2>/dev/null || zpool destroy -f "$pool" 2>/dev/null || true
+  fi
+done
+
+# Step 3: Handle any other active pools using our devices
 if active_pools=$(zpool list -H -o name 2>/dev/null); then
   for pool_name in $active_pools; do
     if zpool status "$pool_name" 2>/dev/null | grep -E "(${DISK}[0-9]+|${DISK})" >/dev/null; then
@@ -185,46 +193,66 @@ if active_pools=$(zpool list -H -o name 2>/dev/null); then
   done
 fi
 
-# Step 2: Handle pools by name (our target pools specifically)
-for pool in "$POOL_B" "$POOL_R"; do
-  if zpool list "$pool" >/dev/null 2>&1; then
-    b "Exporting existing pool $pool"
-    zpool export -f "$pool" 2>/dev/null || zpool destroy -f "$pool" 2>/dev/null || true
-  fi
-done
-
-# Step 3: Find and import any importable pools that use our devices, then destroy them
-# This catches pools that are not currently imported but could be
-if importable_pools=$(zpool import 2>/dev/null | grep -E "^\s+(pool|id):" | grep -B1 -A1 "${DISK}" | grep "pool:" | awk '{print $2}' 2>/dev/null); then
+# Step 4: Force import and destroy any importable pools
+# Use a simpler, more reliable approach to find importable pools
+if zpool import 2>/dev/null | grep -q "pool:"; then
+  # Get all importable pool names
+  importable_pools=$(zpool import 2>/dev/null | grep "^\s*pool:" | awk '{print $2}')
   for pool_name in $importable_pools; do
     if [ -n "$pool_name" ]; then
-      b "Found importable pool '$pool_name' using device $DISK, importing and destroying"
-      # Import the pool forcefully, then destroy it
-      zpool import -f "$pool_name" 2>/dev/null || true
-      zpool destroy -f "$pool_name" 2>/dev/null || true
+      # Try to import and check if it uses our devices
+      if zpool import -N "$pool_name" 2>/dev/null; then
+        if zpool status "$pool_name" 2>/dev/null | grep -E "(${DISK}[0-9]+|${DISK})" >/dev/null; then
+          b "Found importable pool '$pool_name' using device $DISK, destroying"
+          zpool destroy -f "$pool_name" 2>/dev/null || true
+        else
+          # Export it back if it doesn't use our devices
+          zpool export "$pool_name" 2>/dev/null || true
+        fi
+      fi
     fi
   done
 fi
 
-# Step 4: More aggressive device cleanup
+# Step 5: Aggressive device cleanup with multiple passes
 for partition in "${DISK}2" "${DISK}3"; do
   if [ -b "$partition" ]; then
     b "Clearing ZFS labels from $partition"
-    # Clear primary and backup labels
+    # Multiple passes of label clearing
     zpool labelclear -f "$partition" 2>/dev/null || true
-    # Additional cleanup: zero out the first and last few sectors that might contain ZFS metadata
-    dd if=/dev/zero of="$partition" bs=1M count=1 2>/dev/null || true
-    dd if=/dev/zero of="$partition" bs=1M seek=$(($(blockdev --getsz "$partition") / 2048 - 1)) count=1 2>/dev/null || true
+    zpool labelclear -f "$partition" 2>/dev/null || true
+    # Zero out critical sectors that contain ZFS metadata
+    dd if=/dev/zero of="$partition" bs=512 count=2048 2>/dev/null || true
+    dd if=/dev/zero of="$partition" bs=512 seek=$(($(blockdev --getsz "$partition") - 2048)) count=2048 2>/dev/null || true
   fi
 done
 
-# Step 5: Final verification - ensure no pools are using our devices
-if zpool import 2>/dev/null | grep -q "${DISK}"; then
-  warn "Warning: ZFS still detects pools on $DISK after cleanup. Proceeding with force."
-fi
+# Step 6: Force kernel to refresh partition tables and ZFS state
+partprobe "$DISK" 2>/dev/null || true
+udevadm settle 2>/dev/null || true
 
-# Brief pause to let ZFS operations settle
-sleep 2
+# Step 7: Final aggressive cleanup - use wipefs to remove any remaining signatures
+for partition in "${DISK}2" "${DISK}3"; do
+  if [ -b "$partition" ]; then
+    wipefs -a "$partition" 2>/dev/null || true
+  fi
+done
+
+# Step 8: Final verification with retry logic
+for i in 1 2 3; do
+  if ! zpool import 2>/dev/null | grep -q "${DISK}"; then
+    break
+  fi
+  if [ $i -eq 3 ]; then
+    warn "Warning: ZFS still detects pools on $DISK after cleanup. Proceeding with force."
+  else
+    b "Pools still detected on $DISK, retrying cleanup (attempt $i/3)"
+    sleep 2
+  fi
+done
+
+# Final pause to ensure all operations complete
+sleep 3
 
 [ "$ENCRYPT" = yes ] && ENC=(-O encryption=aes-256-gcm -O keyformat=passphrase) || ENC=()
 zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
