@@ -157,6 +157,29 @@ ok "Partitioned"
 
 # --- 2) pools ---
 b "Creating ZFS pools"
+
+# Clean up any existing pools that might conflict
+# First try to export pools by name (safer than destroy)
+if zpool list "$POOL_B" >/dev/null 2>&1; then
+  b "Exporting existing pool $POOL_B"
+  zpool export -f "$POOL_B" 2>/dev/null || zpool destroy -f "$POOL_B" 2>/dev/null || true
+fi
+
+if zpool list "$POOL_R" >/dev/null 2>&1; then
+  b "Exporting existing pool $POOL_R"
+  zpool export -f "$POOL_R" 2>/dev/null || zpool destroy -f "$POOL_R" 2>/dev/null || true
+fi
+
+# Check for any pools using our target devices and clean them up
+for partition in "${DISK}1" "${DISK}2" "${DISK}3"; do
+  if pool_using_device=$(zpool status 2>/dev/null | awk -v dev="$partition" '$0 ~ dev {in_pool=1} /pool:/ && in_pool {print $2; in_pool=0}' | head -1); then
+    if [ -n "$pool_using_device" ]; then
+      b "Found pool '$pool_using_device' using device $partition, cleaning up"
+      zpool export -f "$pool_using_device" 2>/dev/null || zpool destroy -f "$pool_using_device" 2>/dev/null || true
+    fi
+  fi
+done
+
 [ "$ENCRYPT" = yes ] && ENC=(-O encryption=aes-256-gcm -O keyformat=passphrase) || ENC=()
 zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
   -o compatibility=grub2 -O atime=off -O xattr=sa -O acltype=posixacl -O compression=lz4 \
