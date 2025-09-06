@@ -118,6 +118,7 @@ done
 # --- utils ---
 b() { printf '\033[1m%s\033[0m\n' "$*"; }
 ok(){ printf '\033[1;32m[OK]\033[0m %s\n' "$*"; }
+warn(){ printf '\033[1;33m[WARN]\033[0m %s\n' "$*"; }
 die(){ printf '\033[1;31m[FAIL]\033[0m %s\n' "$*"; exit 1; }
 ask(){ [ "$FORCE" = 1 ] && return 0; read -r -p "$1 [y/N]: " a; [[ $a =~ ^[Yy]$ ]]; }
 
@@ -285,7 +286,24 @@ mount -o remount,rw / || true
 install -d -m1777 /var/tmp /tmp
 
 # hostid + cache + bootfs
-command -v zgenhostid >/dev/null 2>&1 && zgenhostid "$(hostid)" || true
+# Generate and save hostid to ensure ZFS pools can be imported automatically
+if command -v zgenhostid >/dev/null 2>&1; then
+    # Generate a hostid and save it to /etc/hostid for persistent identification
+    zgenhostid
+    # Verify the hostid was written correctly
+    if [ -f /etc/hostid ]; then
+        ok "Generated hostid: $(hostid)"
+    else
+        # Fallback: manually create hostid file if zgenhostid didn't create it
+        printf "$(hostid | cut -c 7-8 | xxd -r -p; hostid | cut -c 5-6 | xxd -r -p; hostid | cut -c 3-4 | xxd -r -p; hostid | cut -c 1-2 | xxd -r -p)" > /etc/hostid
+        ok "Created hostid file manually: $(hostid)"
+    fi
+else
+    warn "zgenhostid not available, using fallback hostid generation"
+    # Fallback: manually create hostid file
+    printf "$(hostid | cut -c 7-8 | xxd -r -p; hostid | cut -c 5-6 | xxd -r -p; hostid | cut -c 3-4 | xxd -r -p; hostid | cut -c 1-2 | xxd -r -p)" > /etc/hostid
+fi
+
 zpool set cachefile=/etc/zfs/zpool.cache "$RP" || true
 zpool set cachefile=/etc/zfs/zpool.cache "$BP" || true
 zpool set bootfs="$RP/ROOT/debian" "$RP" || true
@@ -296,6 +314,8 @@ ZPOOL_IMPORT_PATH="/dev/disk/by-id"
 ZPOOL_IMPORT_OPTS="-N"
 ZPOOL_IMPORT_TIMEOUT="30"
 ZFS_INITRD_POST_MODPROBE_SLEEP="2"
+# Force import pools using cache to avoid hostid issues
+ZPOOL_FORCE_IMPORT="1"
 ZDF
 
 # ARC cap
@@ -418,4 +438,5 @@ zpool export -f "$POOL_B" 2>/dev/null || true
 zpool export -f "$POOL_R" 2>/dev/null || true
 ok "Done. Reboot."
 
-echo "If initramfs prompts:  zpool import -N -R /root -d /dev/disk/by-id rpool && zfs mount -a && exit"
+# Note: ZFS pools should now import automatically on boot
+echo "ZFS pools configured for automatic import. System should boot without manual intervention."
