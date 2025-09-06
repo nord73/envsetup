@@ -183,76 +183,96 @@ for pool in "$POOL_B" "$POOL_R"; do
   fi
 done
 
-# Step 3: Handle any other active pools using our devices
+# Step 3: Import ALL pools and destroy any using our disk - more aggressive approach
+# This ensures we catch any pools that might be importable but not currently active
+b "Checking for any importable pools using $DISK"
+zpool import -a -N 2>/dev/null || true
+
+# Now check all active pools and destroy any using our disk
 if active_pools=$(zpool list -H -o name 2>/dev/null); then
   for pool_name in $active_pools; do
     if zpool status "$pool_name" 2>/dev/null | grep -E "(${DISK}[0-9]+|${DISK})" >/dev/null; then
-      b "Found active pool '$pool_name' using device $DISK, cleaning up"
-      zpool export -f "$pool_name" 2>/dev/null || zpool destroy -f "$pool_name" 2>/dev/null || true
+      b "Found pool '$pool_name' using device $DISK, destroying forcefully"
+      zpool destroy -f "$pool_name" 2>/dev/null || true
     fi
   done
 fi
 
-# Step 4: Force import and destroy any importable pools
-# Use a simpler, more reliable approach to find importable pools
-if zpool import 2>/dev/null | grep -q "pool:"; then
-  # Get all importable pool names
-  importable_pools=$(zpool import 2>/dev/null | grep "^\s*pool:" | awk '{print $2}')
-  for pool_name in $importable_pools; do
-    if [ -n "$pool_name" ]; then
-      # Try to import and check if it uses our devices
-      if zpool import -N "$pool_name" 2>/dev/null; then
-        if zpool status "$pool_name" 2>/dev/null | grep -E "(${DISK}[0-9]+|${DISK})" >/dev/null; then
-          b "Found importable pool '$pool_name' using device $DISK, destroying"
-          zpool destroy -f "$pool_name" 2>/dev/null || true
-        else
-          # Export it back if it doesn't use our devices
-          zpool export "$pool_name" 2>/dev/null || true
-        fi
-      fi
-    fi
-  done
-fi
-
-# Step 5: Aggressive device cleanup with multiple passes
+# Step 4: Aggressive device cleanup with multiple tools and passes
 for partition in "${DISK}2" "${DISK}3"; do
   if [ -b "$partition" ]; then
     b "Clearing ZFS labels from $partition"
-    # Multiple passes of label clearing
-    zpool labelclear -f "$partition" 2>/dev/null || true
-    zpool labelclear -f "$partition" 2>/dev/null || true
-    # Zero out critical sectors that contain ZFS metadata
-    dd if=/dev/zero of="$partition" bs=512 count=2048 2>/dev/null || true
-    dd if=/dev/zero of="$partition" bs=512 seek=$(($(blockdev --getsz "$partition") - 2048)) count=2048 2>/dev/null || true
+    
+    # Force any remaining ZFS processes to release the device
+    fuser -k "$partition" 2>/dev/null || true
+    
+    # Multiple passes of different cleanup methods
+    for i in 1 2 3; do
+      zpool labelclear -f "$partition" 2>/dev/null || true
+      wipefs -a "$partition" 2>/dev/null || true
+      # Zero out ZFS metadata areas more thoroughly
+      dd if=/dev/zero of="$partition" bs=1M count=10 2>/dev/null || true
+      dd if=/dev/zero of="$partition" bs=512 count=2048 2>/dev/null || true
+      dd if=/dev/zero of="$partition" bs=512 seek=$(($(blockdev --getsz "$partition") - 2048)) count=2048 2>/dev/null || true
+      sleep 1
+    done
   fi
 done
 
-# Step 6: Force kernel to refresh partition tables and ZFS state
-partprobe "$DISK" 2>/dev/null || true
-udevadm settle 2>/dev/null || true
-
-# Step 7: Final aggressive cleanup - use wipefs to remove any remaining signatures
-for partition in "${DISK}2" "${DISK}3"; do
-  if [ -b "$partition" ]; then
-    wipefs -a "$partition" 2>/dev/null || true
-  fi
-done
-
-# Step 8: Final verification with retry logic
+# Step 5: Force kernel to refresh partition tables and ZFS state multiple times
 for i in 1 2 3; do
-  if ! zpool import 2>/dev/null | grep -q "${DISK}"; then
+  partprobe "$DISK" 2>/dev/null || true
+  udevadm settle --timeout=10 2>/dev/null || true
+  sleep 2
+done
+
+# Step 6: Final verification with retry logic and device availability check
+for i in 1 2 3; do
+  # Check that no pools exist using our disk
+  pools_detected=false
+  if zpool import 2>/dev/null | grep -q "${DISK}"; then
+    pools_detected=true
+  fi
+  if zpool list 2>/dev/null | grep -E "(${DISK}[0-9]+|${DISK})" >/dev/null; then
+    pools_detected=true
+  fi
+  
+  # Check that devices are not busy
+  devices_busy=false
+  for partition in "${DISK}2" "${DISK}3"; do
+    if [ -b "$partition" ] && ! true > "$partition" 2>/dev/null; then
+      devices_busy=true
+      break
+    fi
+  done
+  
+  if [ "$pools_detected" = false ] && [ "$devices_busy" = false ]; then
     break
   fi
+  
   if [ $i -eq 3 ]; then
-    warn "Warning: ZFS still detects pools on $DISK after cleanup. Proceeding with force."
+    if [ "$pools_detected" = true ]; then
+      warn "Warning: ZFS still detects pools on $DISK after cleanup."
+    fi
+    if [ "$devices_busy" = true ]; then
+      warn "Warning: Devices still busy on $DISK after cleanup."
+    fi
+    warn "Proceeding with force flags."
   else
-    b "Pools still detected on $DISK, retrying cleanup (attempt $i/3)"
-    sleep 2
+    b "Issues still detected on $DISK, retrying cleanup (attempt $i/3)"
+    # Re-run more aggressive cleanup
+    fuser -k "${DISK}2" "${DISK}3" 2>/dev/null || true
+    for partition in "${DISK}2" "${DISK}3"; do
+      if [ -b "$partition" ]; then
+        wipefs -af "$partition" 2>/dev/null || true
+      fi
+    done
+    sleep 3
   fi
 done
 
 # Final pause to ensure all operations complete
-sleep 3
+sleep 5
 
 [ "$ENCRYPT" = yes ] && ENC=(-O encryption=aes-256-gcm -O keyformat=passphrase) || ENC=()
 zpool create -f -o ashift=12 -o autotrim=on -o cachefile=/etc/zfs/zpool.cache \
