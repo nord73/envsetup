@@ -39,7 +39,7 @@ wget -q -O- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bas
 
 ### Fonts
 # Nerd Fonts (includes icons/symbols)
-sudo apt install fonts-firacode fonts-jetbrains-mono -y
+sudo apt install -y fonts-firacode fonts-jetbrains-mono fonts-cascadia-code 
 
 # Create fontconfig for better rendering
 mkdir -p ~/.config/fontconfig
