@@ -37,6 +37,36 @@ wget -q -O- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bas
 # echo "Adding user to docker group..."
 # sudo usermod -aG docker $USER
 
+### Fonts
+# Nerd Fonts (includes icons/symbols)
+sudo apt install fonts-firacode fonts-jetbrains-mono -y
+
+# Create fontconfig for better rendering
+mkdir -p ~/.config/fontconfig
+cat > ~/.config/fontconfig/fonts.conf << EOF
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <match target="font">
+    <edit name="antialias" mode="assign">
+      <bool>true</bool>
+    </edit>
+    <edit name="hinting" mode="assign">
+      <bool>true</bool>
+    </edit>
+    <edit name="hintstyle" mode="assign">
+      <const>hintslight</const>
+    </edit>
+    <edit name="rgba" mode="assign">
+      <const>rgb</const>
+    </edit>
+  </match>
+</fontconfig>
+EOF
+
+# Rebuild font cache
+fc-cache -fv
+
 
 ### Cleanup before reboot
 # Restore networkd renderer in netplan
