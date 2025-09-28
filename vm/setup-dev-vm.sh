@@ -37,4 +37,10 @@ wget -q -O- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bas
 # echo "Adding user to docker group..."
 # sudo usermod -aG docker $USER
 
+
+### Cleanup before reboot
+# Restore networkd renderer in netplan
+sudo sed -i 's/renderer: NetworkManager/renderer: networkd/g' /etc/netplan/*.yaml
+
+
 echo "All done. Rebooting is recommended."
