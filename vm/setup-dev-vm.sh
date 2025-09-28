@@ -24,10 +24,14 @@ echo "Installing common dev tools..."
 sudo apt install -y git curl wget build-essential \
   python3 python3-pip \
   nodejs npm 
-  # code # If you add MS repo for code or use Code-OSS
-  # docker.io docker-compose if not using compose CE + compose plugin
+
+### vscode
+# apt install -y code # If added MS repo for code or use Code-OSS
+
   
-echo "Adding user to docker group..."
-sudo usermod -aG docker $USER
+### Docker
+# apt get -y docker.io docker-compose if not using compose CE + compose plugin
+# echo "Adding user to docker group..."
+# sudo usermod -aG docker $USER
 
 echo "All done. Rebooting is recommended."
