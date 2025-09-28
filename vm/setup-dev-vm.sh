@@ -25,6 +25,9 @@ sudo apt install -y git curl wget build-essential \
   python3 python3-pip \
   nodejs npm 
 
+### nvm
+wget -q -O- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+
 ### vscode
 # apt install -y code # If added MS repo for code or use Code-OSS
 
