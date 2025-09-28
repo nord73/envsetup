@@ -67,6 +67,15 @@ EOF
 # Rebuild font cache
 fc-cache -fv
 
+### vscode support
+apt install -y gnome-keyring
+
+### vscode
+# Download & install vscode
+wget -O vscode.deb "https://go.microsoft.com/fwlink/?LinkID=760868"
+echo "code code/add-microsoft-repo boolean true" | sudo debconf-set-selections
+sudo dpkg -i vscode.deb
+rm vscode.deb
 
 ### Cleanup before reboot
 # Restore networkd renderer in netplan
