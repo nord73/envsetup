@@ -2,11 +2,14 @@
 
 set -e
 
-echo "Updating system..."
+# Start with server install, then add desktop components
 sudo apt update && sudo apt upgrade -y
 
-echo "Installing XFCE desktop environment..."
-sudo apt install -y xfce4 xfce4-goodies
+# Install minimal desktop (lighter than ubuntu-desktop-minimal)
+sudo apt install --no-install-recommends ubuntu-desktop-minimal -y
+
+# Or even lighter with XFCE:
+# sudo apt install xfce4 xfce4-goodies lightdm -y
 
 echo "Installing xRDP..."
 sudo apt install -y xrdp
