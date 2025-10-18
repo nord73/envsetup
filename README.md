@@ -78,6 +78,9 @@ bash scripts/bootstrap.sh --scenario=development-server
 
 # Production server - minimal packages for production use
 bash scripts/bootstrap.sh --scenario=production-server
+
+# Docker host - dedicated container host with Docker CE
+bash scripts/bootstrap.sh --scenario=docker-host
 ```
 
 ### Optional Components
@@ -158,6 +161,22 @@ Best for: Production deployments, minimal attack surface
 ```bash
 bash scripts/bootstrap.sh --scenario=production-server
 ```
+
+### Docker Host
+Best for: Dedicated Docker container hosts, container orchestration servers
+
+**Includes:**
+- Base packages: `tmux`, `git`, `curl`, `wget`, `jq`
+- Monitoring tools: `tree`, `htop`
+- Docker CE (automatically installed)
+- Current user added to docker group for non-root access
+
+**Usage:**
+```bash
+bash scripts/bootstrap.sh --scenario=docker-host
+```
+
+**Note:** After installation, you need to log out and back in (or run `newgrp docker`) for the docker group membership to take effect.
 
 ---
 

@@ -117,6 +117,26 @@ case "$INSTALL_SCENARIO" in
 esac
 ```
 
+### Example: Docker Host Scenario (Built-in)
+
+The docker-host scenario demonstrates automatic Docker installation:
+
+```bash
+case "$INSTALL_SCENARIO" in
+  # ... existing scenarios ...
+  docker-host)
+    TOOLS=(${BASE_TOOLS[@]} tree htop)
+    # Docker host scenario automatically enables Docker installation
+    INSTALL_DOCKER=true
+    ;;
+esac
+```
+
+**Key features:**
+- Automatically sets `INSTALL_DOCKER=true`
+- Includes minimal monitoring tools (tree, htop)
+- Docker installation adds user to docker group for non-root access
+
 ## Adding Support for New Tools
 
 ### 1. Add to appropriate tool list in bootstrap.sh

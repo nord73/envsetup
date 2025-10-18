@@ -52,7 +52,7 @@ for arg in "$@"; do
       echo ""
       echo "Options:"
       echo "  --scenario=<type>  Installation scenario (default: developer-desktop)"
-      echo "                     Options: developer-desktop, clean-desktop, development-server, production-server"
+      echo "                     Options: developer-desktop, clean-desktop, development-server, production-server, docker-host"
       echo "  --docker           Install Docker CE"
       echo "  --bin              Install marcosnils/bin tool"
       echo "  --help             Show this help message"
@@ -79,6 +79,11 @@ case "$INSTALL_SCENARIO" in
     ;;
   production-server)
     TOOLS=(${BASE_TOOLS[@]})
+    ;;
+  docker-host)
+    TOOLS=(${BASE_TOOLS[@]} tree htop)
+    # Docker host scenario automatically enables Docker installation
+    INSTALL_DOCKER=true
     ;;
   *)
     echo "Unknown installation scenario: $INSTALL_SCENARIO"
@@ -229,6 +234,16 @@ done
 install_docker_linux() {
   if command -v docker >/dev/null 2>&1; then
     echo "Docker is already installed."
+    
+    # Check if user is in docker group
+    if ! groups | grep -q docker; then
+      echo "Adding current user to docker group..."
+      sudo usermod -aG docker "$USER"
+      echo "User $USER added to docker group."
+      echo "Note: You need to log out and back in for group changes to take effect."
+    else
+      echo "User $USER is already in docker group."
+    fi
     return
   fi
   
@@ -258,6 +273,13 @@ install_docker_linux() {
       sudo apt update
       if sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
         echo "Docker CE installation complete."
+        
+        # Add current user to docker group for non-root access
+        echo "Adding current user to docker group for non-root access..."
+        sudo usermod -aG docker "$USER"
+        echo "User $USER added to docker group."
+        echo "Note: You need to log out and back in for group changes to take effect."
+        echo "Or run: newgrp docker"
       else
         echo "Warning: Docker CE installation failed. Please install manually."
       fi
@@ -270,6 +292,13 @@ install_docker_linux() {
         echo "Starting Docker service..."
         sudo systemctl start docker
         sudo systemctl enable docker
+        
+        # Add current user to docker group for non-root access
+        echo "Adding current user to docker group for non-root access..."
+        sudo usermod -aG docker "$USER"
+        echo "User $USER added to docker group."
+        echo "Note: You need to log out and back in for group changes to take effect."
+        echo "Or run: newgrp docker"
       else
         echo "Warning: Docker CE installation failed. Please install manually."
       fi
