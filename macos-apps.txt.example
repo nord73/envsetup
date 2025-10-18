@@ -1,0 +1,26 @@
+# macOS Applications to install via Homebrew Cask
+# One app per line - use app names from https://formulae.brew.sh/cask/
+#
+# Common Development Tools:
+# iterm2
+# visual-studio-code
+# docker
+# postman
+# sublime-text
+#
+# Browsers:
+# firefox
+# google-chrome
+# brave-browser
+#
+# Communication:
+# slack
+# discord
+# zoom
+#
+# Productivity:
+# rectangle
+# alfred
+# notion
+#
+# Uncomment apps you want to install, or add your own

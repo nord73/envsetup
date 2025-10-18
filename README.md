@@ -23,6 +23,9 @@ This repo helps bootstrap a clean development environment with essential tools, 
 
 ### macOS
 - **macOS 10.15+** (Catalina and later)
+- **Homebrew support**: User-local installation to `~/.brew` (non-root)
+- **Package installation**: Command-line tools via Homebrew
+- **App installation**: GUI applications via Homebrew Cask and Mac App Store (mas-cli)
 
 The toolkit automatically detects your OS version and variant, adapting package installation accordingly. It handles version-specific differences like package names and repository configurations.
 
@@ -208,6 +211,107 @@ Guest agents enable:
 ### Manual Installation
 
 If you're on physical hardware or want to skip agent installation, the script automatically detects this and continues without installing agents.
+
+---
+
+## macOS Support
+
+### Homebrew Installation
+
+The bootstrap script supports two Homebrew installation modes:
+
+#### Default User-Local Installation (Recommended)
+
+The script installs Homebrew to `~/.brew` without requiring root access:
+
+```bash
+bash scripts/bootstrap.sh
+```
+
+This creates:
+- `~/.brew/` - Homebrew installation directory
+- `~/bin/brew-source.sh` - Script to activate Homebrew in your shell
+
+**Activating Homebrew:**
+```bash
+# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
+source ~/bin/brew-source.sh
+
+# Or activate for current session
+source ~/bin/brew-source.sh
+```
+
+The `brew-source.sh` script contains:
+```bash
+export PATH="$HOME/.brew/bin:$PATH"
+export HOMEBREW_PREFIX="$HOME/.brew"
+```
+
+#### System-Wide Installation
+
+If you prefer the official system-wide Homebrew installation to `/opt/homebrew` (Apple Silicon) or `/usr/local` (Intel):
+
+1. Install Homebrew manually first:
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+
+2. Run the bootstrap script - it will detect the existing Homebrew installation
+
+### Installing macOS Applications
+
+The bootstrap script supports installing GUI applications on macOS:
+
+#### Homebrew Cask Applications
+
+Install applications via Homebrew Cask by creating a `macos-apps.txt` file:
+
+```bash
+# Create macos-apps.txt with apps to install
+cat > macos-apps.txt << EOF
+iterm2
+visual-studio-code
+docker
+firefox
+slack
+EOF
+
+# Run bootstrap to install apps
+bash scripts/bootstrap.sh --apps
+```
+
+#### Mac App Store Applications
+
+Install applications from the Mac App Store using `mas-cli`:
+
+```bash
+# Create mas-apps.txt with App Store app IDs
+cat > mas-apps.txt << EOF
+497799835  # Xcode
+1333542190 # 1Password 7
+1295203466 # Microsoft Remote Desktop
+EOF
+
+# Run bootstrap to install apps
+bash scripts/bootstrap.sh --mas
+```
+
+**Finding App IDs:**
+```bash
+# Search for an app
+mas search "App Name"
+
+# List installed apps with IDs
+mas list
+```
+
+#### Combined Installation
+
+Install both command-line tools and applications:
+
+```bash
+bash scripts/bootstrap.sh --apps --mas
+```
 
 ---
 

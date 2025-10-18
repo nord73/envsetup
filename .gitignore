@@ -1,0 +1,12 @@
+# User-specific app lists (examples are committed)
+macos-apps.txt
+mas-apps.txt
+
+# Temporary files
+*.tmp
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

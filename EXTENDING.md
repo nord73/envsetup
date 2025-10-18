@@ -201,6 +201,102 @@ if [ "$OS_MAJOR_VERSION" = "23" ]; then
 fi
 ```
 
+## macOS Application Management
+
+### Installing GUI Applications
+
+The bootstrap script supports installing macOS applications via two methods:
+
+#### Homebrew Cask Applications
+
+Create a `macos-apps.txt` file with application names:
+
+```bash
+# macos-apps.txt
+iterm2
+visual-studio-code
+docker
+firefox
+slack
+```
+
+Install with:
+```bash
+bash scripts/bootstrap.sh --apps
+```
+
+**Finding App Names:**
+- Browse: https://formulae.brew.sh/cask/
+- Search: `brew search <app-name>`
+
+#### Mac App Store Applications
+
+Create a `mas-apps.txt` file with App Store IDs:
+
+```bash
+# mas-apps.txt
+497799835   # Xcode
+1333542190  # 1Password 7
+1295203466  # Microsoft Remote Desktop
+```
+
+Install with:
+```bash
+bash scripts/bootstrap.sh --mas
+```
+
+**Finding App IDs:**
+```bash
+# Install mas first
+brew install mas
+
+# Search for apps
+mas search "App Name"
+
+# List installed apps with IDs
+mas list
+```
+
+**Note:** You must be signed in to the Mac App Store:
+```bash
+mas signin your@email.com
+```
+
+### Homebrew Installation Modes
+
+The script supports two Homebrew installation modes:
+
+#### User-Local (Default)
+- Location: `~/.brew`
+- No root access required
+- Activated via: `source ~/bin/brew-source.sh`
+- Best for: Multi-user systems, non-admin accounts
+
+#### System-Wide
+- Location: `/opt/homebrew` (Apple Silicon) or `/usr/local` (Intel)
+- Requires admin password
+- Install manually first, script will detect it
+- Best for: Single-user systems, admin accounts
+
+### Customizing macOS Apps
+
+Edit the example files to create your own app lists:
+
+```bash
+# Copy examples
+cp macos-apps.txt.example macos-apps.txt
+cp mas-apps.txt.example mas-apps.txt
+
+# Edit with your preferred apps
+vim macos-apps.txt
+vim mas-apps.txt
+
+# Install
+bash scripts/bootstrap.sh --apps --mas
+```
+
+The `.gitignore` excludes your personal app lists, so they won't be committed to version control.
+
 ## Future Considerations
 
 1. **Package availability**: New OS versions may introduce or remove packages

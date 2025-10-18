@@ -35,6 +35,8 @@ fi
 INSTALL_SCENARIO="developer-desktop"  # default
 INSTALL_DOCKER=false
 INSTALL_BIN_TOOL=false
+INSTALL_MACOS_APPS=false
+INSTALL_MAS_APPS=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -47,6 +49,12 @@ for arg in "$@"; do
     --bin)
       INSTALL_BIN_TOOL=true
       ;;
+    --apps)
+      INSTALL_MACOS_APPS=true
+      ;;
+    --mas)
+      INSTALL_MAS_APPS=true
+      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
@@ -55,6 +63,8 @@ for arg in "$@"; do
       echo "                     Options: developer-desktop, clean-desktop, development-server, production-server, docker-host"
       echo "  --docker           Install Docker CE"
       echo "  --bin              Install marcosnils/bin tool"
+      echo "  --apps             Install macOS applications from macos-apps.txt (Homebrew Cask)"
+      echo "  --mas              Install macOS App Store applications from mas-apps.txt"
       echo "  --help             Show this help message"
       exit 0
       ;;
@@ -164,17 +174,42 @@ install_fedora() {
 install_macos() {
   BREW_PREFIX="$HOME/.brew"
   BREW_BIN="$BREW_PREFIX/bin/brew"
-  if ! command -v brew >/dev/null 2>&1 && [ ! -x "$BREW_BIN" ]; then
-    echo "Installing Homebrew to $BREW_PREFIX..."
-    git clone https://github.com/Homebrew/brew "$BREW_PREFIX"
-    echo "export PATH=\"$BREW_PREFIX/bin:\$PATH\"" > "$HOME/bin/brew-source.sh"
-    echo "export HOMEBREW_PREFIX=\"$BREW_PREFIX\"" >> "$HOME/bin/brew-source.sh"
-    chmod +x "$HOME/bin/brew-source.sh"
-    echo "Run 'source ~/bin/brew-source.sh' to activate Homebrew in your shell."
-  fi
-  # Source Homebrew if installed locally
-  if [ -x "$BREW_BIN" ]; then
+  
+  # Check for existing Homebrew installation (system-wide)
+  if command -v brew >/dev/null 2>&1; then
+    echo "Using existing Homebrew installation at $(which brew)"
+  elif [ -x "$BREW_BIN" ]; then
+    echo "Using existing Homebrew installation at $BREW_PREFIX"
     export PATH="$BREW_PREFIX/bin:$PATH"
+  else
+    # Install Homebrew to user-local directory
+    echo "Installing Homebrew to $BREW_PREFIX (user-local, non-root)..."
+    git clone https://github.com/Homebrew/brew "$BREW_PREFIX"
+    
+    # Create brew-source.sh activation script
+    cat > "$HOME/bin/brew-source.sh" << 'BREWEOF'
+#!/bin/bash
+# Activate user-local Homebrew installation
+export PATH="$HOME/.brew/bin:$PATH"
+export HOMEBREW_PREFIX="$HOME/.brew"
+BREWEOF
+    chmod +x "$HOME/bin/brew-source.sh"
+    
+    echo ""
+    echo "=========================================="
+    echo "Homebrew installed to $BREW_PREFIX"
+    echo ""
+    echo "To activate Homebrew, run:"
+    echo "  source ~/bin/brew-source.sh"
+    echo ""
+    echo "Or add to your shell profile (~/.bashrc, ~/.zshrc, etc.):"
+    echo "  source ~/bin/brew-source.sh"
+    echo "=========================================="
+    echo ""
+    
+    # Source for current session
+    export PATH="$BREW_PREFIX/bin:$PATH"
+    export HOMEBREW_PREFIX="$BREW_PREFIX"
   fi
   
   echo "Installing tools for $(get_os_display_name)..."
@@ -196,6 +231,78 @@ install_macos() {
       echo "$tool is already installed."
     fi
   done
+}
+
+# Function to install macOS applications via Homebrew Cask
+install_macos_apps() {
+  local apps_file="macos-apps.txt"
+  
+  if [ ! -f "$apps_file" ]; then
+    echo "No $apps_file found. Skipping macOS app installation."
+    echo "Create $apps_file with app names (one per line) to install GUI applications."
+    return 0
+  fi
+  
+  echo "Installing macOS applications from $apps_file..."
+  
+  while IFS= read -r app || [ -n "$app" ]; do
+    # Skip empty lines and comments
+    [[ -z "$app" || "$app" =~ ^[[:space:]]*# ]] && continue
+    
+    # Trim whitespace
+    app=$(echo "$app" | xargs)
+    
+    echo "Installing $app via Homebrew Cask..."
+    if brew install --cask "$app" 2>/dev/null; then
+      echo "✓ $app installed successfully."
+    else
+      echo "⚠ Failed to install $app (may already be installed or not found)."
+    fi
+  done < "$apps_file"
+  
+  echo "macOS app installation complete."
+}
+
+# Function to install macOS App Store applications via mas
+install_mas_apps() {
+  local mas_file="mas-apps.txt"
+  
+  # Check if mas is installed
+  if ! command -v mas >/dev/null 2>&1; then
+    echo "Installing mas-cli for Mac App Store installations..."
+    if brew install mas; then
+      echo "mas-cli installed successfully."
+    else
+      echo "Failed to install mas-cli. Skipping App Store installations."
+      return 1
+    fi
+  fi
+  
+  if [ ! -f "$mas_file" ]; then
+    echo "No $mas_file found. Skipping Mac App Store app installation."
+    echo "Create $mas_file with App Store IDs (one per line) to install apps."
+    echo "Find IDs with: mas search 'App Name'"
+    return 0
+  fi
+  
+  echo "Installing Mac App Store applications from $mas_file..."
+  
+  while IFS= read -r app_id || [ -n "$app_id" ]; do
+    # Skip empty lines and comments
+    [[ -z "$app_id" || "$app_id" =~ ^[[:space:]]*# ]] && continue
+    
+    # Trim whitespace and extract just the ID
+    app_id=$(echo "$app_id" | awk '{print $1}' | xargs)
+    
+    echo "Installing App Store app ID: $app_id..."
+    if mas install "$app_id" 2>/dev/null; then
+      echo "✓ App $app_id installed successfully."
+    else
+      echo "⚠ Failed to install app $app_id (may already be installed or require sign-in)."
+    fi
+  done < "$mas_file"
+  
+  echo "Mac App Store app installation complete."
 }
 
 # Function to install hypervisor guest agent
@@ -398,6 +505,17 @@ elif [[ "$OS_NAME" == "fedora" ]]; then
   fi
 elif [[ "$OS_NAME" == "macos" ]]; then
   install_macos
+  
+  # Install macOS apps if requested
+  if [ "$INSTALL_MACOS_APPS" = true ]; then
+    install_macos_apps
+  fi
+  
+  # Install Mac App Store apps if requested
+  if [ "$INSTALL_MAS_APPS" = true ]; then
+    install_mas_apps
+  fi
+  
   # On MacOS, recommend Docker Desktop
   if [ "$INSTALL_DOCKER" = true ]; then
     echo "Please install Docker Desktop from https://www.docker.com/products/docker-desktop/"
