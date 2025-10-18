@@ -24,14 +24,70 @@ echo "Detected: $(get_os_display_name)"
 if ! is_supported_version; then
   echo "Warning: $(get_os_display_name) may not be fully supported."
   echo "Supported versions:"
-  echo "  - Ubuntu 20.04+"
+  echo "  - Ubuntu 20.04+ (including .10 releases)"
   echo "  - Debian 11+ (bullseye, bookworm, trixie, etc.)"
+  echo "  - Fedora 35+"
   echo "  - macOS 10.15+"
   echo "Continuing anyway..."
 fi
 
-# Essential tools to verify/install
-TOOLS=(git curl wget tree htop fzf ripgrep bat jq)
+# Parse command line arguments for installation scenario
+INSTALL_SCENARIO="developer-desktop"  # default
+INSTALL_DOCKER=false
+INSTALL_BIN_TOOL=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --scenario=*)
+      INSTALL_SCENARIO="${arg#*=}"
+      ;;
+    --docker)
+      INSTALL_DOCKER=true
+      ;;
+    --bin)
+      INSTALL_BIN_TOOL=true
+      ;;
+    --help)
+      echo "Usage: $0 [OPTIONS]"
+      echo ""
+      echo "Options:"
+      echo "  --scenario=<type>  Installation scenario (default: developer-desktop)"
+      echo "                     Options: developer-desktop, clean-desktop, development-server, production-server"
+      echo "  --docker           Install Docker CE"
+      echo "  --bin              Install marcosnils/bin tool"
+      echo "  --help             Show this help message"
+      exit 0
+      ;;
+  esac
+done
+
+echo "Installation scenario: $INSTALL_SCENARIO"
+
+# Essential tools to verify/install (base packages for all scenarios)
+BASE_TOOLS=(tmux git curl wget jq)
+
+# Additional tools based on installation scenario
+case "$INSTALL_SCENARIO" in
+  developer-desktop)
+    TOOLS=(${BASE_TOOLS[@]} tree htop fzf ripgrep bat)
+    ;;
+  clean-desktop)
+    TOOLS=(${BASE_TOOLS[@]})
+    ;;
+  development-server)
+    TOOLS=(${BASE_TOOLS[@]} tree htop fzf ripgrep bat)
+    ;;
+  production-server)
+    TOOLS=(${BASE_TOOLS[@]})
+    ;;
+  *)
+    echo "Unknown installation scenario: $INSTALL_SCENARIO"
+    echo "Using default: developer-desktop"
+    TOOLS=(${BASE_TOOLS[@]} tree htop fzf ripgrep bat)
+    ;;
+esac
+
+echo "Installing tools: ${TOOLS[@]}"
 
 # Create user directories
 mkdir -p "$HOME/bin" "$HOME/src"
@@ -73,6 +129,32 @@ install_linux() {
   fi
 }
 
+# Function to install tools on Fedora
+install_fedora() {
+  echo "Updating package list..."
+  sudo dnf check-update || true
+  
+  echo "Installing tools for $(get_os_display_name)..."
+  for tool in "${TOOLS[@]}"; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      if is_tool_available "$tool"; then
+        package_name=$(get_package_name "$tool")
+        echo "Installing $tool (package: $package_name)..."
+        
+        if sudo dnf install -y "$package_name"; then
+          echo "$tool installed successfully."
+        else
+          echo "Warning: Failed to install $tool ($package_name). Skipping..."
+        fi
+      else
+        echo "Warning: $tool is not available for $(get_os_display_name). Skipping..."
+      fi
+    else
+      echo "$tool is already installed."
+    fi
+  done
+}
+
 # Function to install tools on MacOS
 install_macos() {
   BREW_PREFIX="$HOME/.brew"
@@ -111,8 +193,32 @@ install_macos() {
   done
 }
 
-# Check for --docker flag
-INSTALL_DOCKER=false
+# Function to install marcosnils/bin
+install_bin_tool() {
+  if command -v bin >/dev/null 2>&1; then
+    echo "bin is already installed."
+    return
+  fi
+  
+  echo "Installing marcosnils/bin..."
+  mkdir -p "$HOME/bin"
+  
+  # Download and install bin
+  if curl -sSL https://raw.githubusercontent.com/marcosnils/bin/master/install.sh | bash -s -- -d "$HOME/bin"; then
+    echo "bin installed successfully to ~/bin/"
+    echo "Make sure ~/bin is in your PATH"
+    
+    # Add to PATH if not already there
+    if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
+      echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.bashrc"
+      echo "Added ~/bin to PATH in .bashrc"
+    fi
+  else
+    echo "Warning: Failed to install bin. Please install manually from https://github.com/marcosnils/bin"
+  fi
+}
+
+# Check for --docker flag (legacy support)
 for arg in "$@"; do
   if [ "$arg" == "--docker" ]; then
     INSTALL_DOCKER=true
@@ -127,40 +233,59 @@ install_docker_linux() {
   fi
   
   echo "Installing Docker CE for $(get_os_display_name)..."
-  sudo apt update
-  sudo apt install -y ca-certificates curl gnupg
-  sudo install -m 0755 -d /etc/apt/keyrings
   
-  # Use appropriate Docker repository for the OS
   case "$OS_NAME" in
-    ubuntu)
-      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-      echo \
-        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-        $(lsb_release -cs) stable" | \
-        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    ubuntu|debian)
+      sudo apt update
+      sudo apt install -y ca-certificates curl gnupg
+      sudo install -m 0755 -d /etc/apt/keyrings
+      
+      # Use appropriate Docker repository for the OS
+      if [ "$OS_NAME" = "ubuntu" ]; then
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        echo \
+          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+          $(lsb_release -cs) stable" | \
+          sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      else
+        curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        echo \
+          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+          $(lsb_release -cs) stable" | \
+          sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+      fi
+      
+      sudo apt update
+      if sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+        echo "Docker CE installation complete."
+      else
+        echo "Warning: Docker CE installation failed. Please install manually."
+      fi
       ;;
-    debian)
-      curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-      echo \
-        "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
-        $(lsb_release -cs) stable" | \
-        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    fedora)
+      sudo dnf -y install dnf-plugins-core
+      sudo dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+      if sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+        echo "Docker CE installation complete."
+        echo "Starting Docker service..."
+        sudo systemctl start docker
+        sudo systemctl enable docker
+      else
+        echo "Warning: Docker CE installation failed. Please install manually."
+      fi
       ;;
   esac
-  
-  sudo apt update
-  if sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
-    echo "Docker CE installation complete."
-  else
-    echo "Warning: Docker CE installation failed. Please install manually."
-  fi
 }
 
 # Detect OS and run appropriate installer
 echo "Running installer for $(get_os_display_name)..."
 if [[ "$OS_NAME" == "ubuntu" ]] || [[ "$OS_NAME" == "debian" ]]; then
   install_linux
+  if [ "$INSTALL_DOCKER" = true ]; then
+    install_docker_linux
+  fi
+elif [[ "$OS_NAME" == "fedora" ]]; then
+  install_fedora
   if [ "$INSTALL_DOCKER" = true ]; then
     install_docker_linux
   fi
@@ -173,6 +298,11 @@ elif [[ "$OS_NAME" == "macos" ]]; then
 else
   echo "Unsupported OS: $(get_os_display_name)"
   exit 1
+fi
+
+# Install bin tool if requested
+if [ "$INSTALL_BIN_TOOL" = true ]; then
+  install_bin_tool
 fi
 
 # Symlink dotfiles (if present)

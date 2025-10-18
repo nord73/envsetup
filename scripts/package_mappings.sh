@@ -12,78 +12,75 @@ fi
 # Define package mappings for different OS versions
 # Format: declare -A OS_VERSION_PACKAGES=(["package_alias"]="actual_package_name")
 
-# Ubuntu package mappings
+# Ubuntu package mappings (works for all versions 20.04+, including .10 releases)
+# Most packages have consistent names across Ubuntu versions
+declare -A UBUNTU_PACKAGES=(
+  ["tmux"]="tmux"
+  ["git"]="git"
+  ["curl"]="curl"
+  ["wget"]="wget"
+  ["jq"]="jq"
+  ["tree"]="tree"
+  ["htop"]="htop"
+  ["fzf"]="fzf"
+  ["ripgrep"]="ripgrep"
+  ["bat"]="bat"
+)
+
+# Ubuntu 20.04 specific packages (override if needed)
 declare -A UBUNTU_20_PACKAGES=(
+  ["tmux"]="tmux"
   ["git"]="git"
   ["curl"]="curl"
   ["wget"]="wget"
+  ["jq"]="jq"
   ["tree"]="tree"
   ["htop"]="htop"
   ["fzf"]="fzf"
   ["ripgrep"]="ripgrep"
   ["bat"]="bat"
-  ["jq"]="jq"
 )
 
-declare -A UBUNTU_22_PACKAGES=(
-  ["git"]="git"
-  ["curl"]="curl"
-  ["wget"]="wget"
-  ["tree"]="tree"
-  ["htop"]="htop"
-  ["fzf"]="fzf"
-  ["ripgrep"]="ripgrep"
-  ["bat"]="bat"
-  ["jq"]="jq"
-)
-
-declare -A UBUNTU_24_PACKAGES=(
-  ["git"]="git"
-  ["curl"]="curl"
-  ["wget"]="wget"
-  ["tree"]="tree"
-  ["htop"]="htop"
-  ["fzf"]="fzf"
-  ["ripgrep"]="ripgrep"
-  ["bat"]="bat"
-  ["jq"]="jq"
-)
-
-# Debian package mappings
+# Debian 11 package mappings (Bullseye has different bat package name)
 declare -A DEBIAN_11_PACKAGES=(
+  ["tmux"]="tmux"
   ["git"]="git"
   ["curl"]="curl"
   ["wget"]="wget"
+  ["jq"]="jq"
   ["tree"]="tree"
   ["htop"]="htop"
   ["fzf"]="fzf"
   ["ripgrep"]="ripgrep"
-  ["bat"]="batcat"  # Different package name in older Debian
-  ["jq"]="jq"
+  ["bat"]="batcat"  # Different package name in Debian 11
 )
 
-declare -A DEBIAN_12_PACKAGES=(
+# Debian 12+ package mappings
+declare -A DEBIAN_PACKAGES=(
+  ["tmux"]="tmux"
   ["git"]="git"
   ["curl"]="curl"
   ["wget"]="wget"
+  ["jq"]="jq"
   ["tree"]="tree"
   ["htop"]="htop"
   ["fzf"]="fzf"
   ["ripgrep"]="ripgrep"
   ["bat"]="bat"
-  ["jq"]="jq"
 )
 
-declare -A DEBIAN_13_PACKAGES=(
+# Fedora package mappings
+declare -A FEDORA_PACKAGES=(
+  ["tmux"]="tmux"
   ["git"]="git"
   ["curl"]="curl"
   ["wget"]="wget"
+  ["jq"]="jq"
   ["tree"]="tree"
   ["htop"]="htop"
   ["fzf"]="fzf"
   ["ripgrep"]="ripgrep"
   ["bat"]="bat"
-  ["jq"]="jq"
 )
 
 # macOS package mappings (Homebrew)
@@ -106,30 +103,26 @@ get_package_name() {
   
   case "$OS_NAME" in
     ubuntu)
-      case "$OS_MAJOR_VERSION" in
-        20)
-          eval "package_name=\${UBUNTU_20_PACKAGES[\"$tool\"]}"
-          ;;
-        22)
-          eval "package_name=\${UBUNTU_22_PACKAGES[\"$tool\"]}"
-          ;;
-        24|*)
-          eval "package_name=\${UBUNTU_24_PACKAGES[\"$tool\"]}"
-          ;;
-      esac
+      # For Ubuntu 20.x, use specific mappings if available, otherwise use generic
+      if [ "$OS_MAJOR_VERSION" = "20" ]; then
+        eval "package_name=\${UBUNTU_20_PACKAGES[\"$tool\"]}"
+      fi
+      # If not found or for other versions, use generic Ubuntu mappings
+      if [ -z "$package_name" ]; then
+        eval "package_name=\${UBUNTU_PACKAGES[\"$tool\"]}"
+      fi
       ;;
     debian)
-      case "$OS_MAJOR_VERSION" in
-        11)
-          eval "package_name=\${DEBIAN_11_PACKAGES[\"$tool\"]}"
-          ;;
-        12)
-          eval "package_name=\${DEBIAN_12_PACKAGES[\"$tool\"]}"
-          ;;
-        13|*)
-          eval "package_name=\${DEBIAN_13_PACKAGES[\"$tool\"]}"
-          ;;
-      esac
+      # Debian 11 has special package names
+      if [ "$OS_MAJOR_VERSION" = "11" ]; then
+        eval "package_name=\${DEBIAN_11_PACKAGES[\"$tool\"]}"
+      else
+        # Debian 12+ uses generic mappings
+        eval "package_name=\${DEBIAN_PACKAGES[\"$tool\"]}"
+      fi
+      ;;
+    fedora)
+      eval "package_name=\${FEDORA_PACKAGES[\"$tool\"]}"
       ;;
     macos)
       eval "package_name=\${MACOS_PACKAGES[\"$tool\"]}"
@@ -148,30 +141,21 @@ get_package_name() {
 get_available_tools() {
   case "$OS_NAME" in
     ubuntu)
-      case "$OS_MAJOR_VERSION" in
-        20)
-          echo "${!UBUNTU_20_PACKAGES[@]}"
-          ;;
-        22)
-          echo "${!UBUNTU_22_PACKAGES[@]}"
-          ;;
-        24|*)
-          echo "${!UBUNTU_24_PACKAGES[@]}"
-          ;;
-      esac
+      if [ "$OS_MAJOR_VERSION" = "20" ]; then
+        echo "${!UBUNTU_20_PACKAGES[@]}"
+      else
+        echo "${!UBUNTU_PACKAGES[@]}"
+      fi
       ;;
     debian)
-      case "$OS_MAJOR_VERSION" in
-        11)
-          echo "${!DEBIAN_11_PACKAGES[@]}"
-          ;;
-        12)
-          echo "${!DEBIAN_12_PACKAGES[@]}"
-          ;;
-        13|*)
-          echo "${!DEBIAN_13_PACKAGES[@]}"
-          ;;
-      esac
+      if [ "$OS_MAJOR_VERSION" = "11" ]; then
+        echo "${!DEBIAN_11_PACKAGES[@]}"
+      else
+        echo "${!DEBIAN_PACKAGES[@]}"
+      fi
+      ;;
+    fedora)
+      echo "${!FEDORA_PACKAGES[@]}"
       ;;
     macos)
       echo "${!MACOS_PACKAGES[@]}"
