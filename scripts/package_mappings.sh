@@ -96,6 +96,35 @@ declare -A MACOS_PACKAGES=(
   ["jq"]="jq"
 )
 
+# Hypervisor guest agent mappings
+# Format: [hypervisor]="package_name_for_ubuntu debian fedora"
+declare -A HYPERVISOR_AGENTS_UBUNTU=(
+  ["vmware"]="open-vm-tools"
+  ["virtualbox"]="virtualbox-guest-utils"
+  ["hyperv"]="hyperv-daemons"
+  ["kvm"]="qemu-guest-agent"
+  ["qemu"]="qemu-guest-agent"
+  ["xen"]="xen-guest-agent"
+)
+
+declare -A HYPERVISOR_AGENTS_DEBIAN=(
+  ["vmware"]="open-vm-tools"
+  ["virtualbox"]="virtualbox-guest-utils"
+  ["hyperv"]="hyperv-daemons"
+  ["kvm"]="qemu-guest-agent"
+  ["qemu"]="qemu-guest-agent"
+  ["xen"]="xen-guest-agent"
+)
+
+declare -A HYPERVISOR_AGENTS_FEDORA=(
+  ["vmware"]="open-vm-tools"
+  ["virtualbox"]="virtualbox-guest-additions"
+  ["hyperv"]="hyperv-daemons"
+  ["kvm"]="qemu-guest-agent"
+  ["qemu"]="qemu-guest-agent"
+  ["xen"]="xen-guest-agent"
+)
+
 # Get the actual package name for a tool on the current OS
 get_package_name() {
   local tool="$1"
@@ -175,4 +204,24 @@ is_tool_available() {
     fi
   done
   return 1
+}
+
+# Get hypervisor agent package name for current OS and hypervisor
+get_hypervisor_agent_package() {
+  local hypervisor="$1"
+  local package_name=""
+  
+  case "$OS_NAME" in
+    ubuntu)
+      eval "package_name=\${HYPERVISOR_AGENTS_UBUNTU[\"$hypervisor\"]}"
+      ;;
+    debian)
+      eval "package_name=\${HYPERVISOR_AGENTS_DEBIAN[\"$hypervisor\"]}"
+      ;;
+    fedora)
+      eval "package_name=\${HYPERVISOR_AGENTS_FEDORA[\"$hypervisor\"]}"
+      ;;
+  esac
+  
+  echo "$package_name"
 }

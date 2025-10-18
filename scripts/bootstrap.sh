@@ -198,6 +198,80 @@ install_macos() {
   done
 }
 
+# Function to install hypervisor guest agent
+install_hypervisor_agent() {
+  # Detect hypervisor
+  detect_hypervisor
+  
+  if [ "$HYPERVISOR" = "none" ]; then
+    echo "Running on physical hardware, skipping hypervisor agent installation."
+    return 0
+  fi
+  
+  echo "Detected hypervisor: $(get_hypervisor_name)"
+  
+  # Get the appropriate package name
+  local agent_package
+  agent_package=$(get_hypervisor_agent_package "$HYPERVISOR")
+  
+  if [ -z "$agent_package" ]; then
+    echo "No hypervisor agent available for $HYPERVISOR on $(get_os_display_name)."
+    return 0
+  fi
+  
+  echo "Installing hypervisor agent: $agent_package..."
+  
+  case "$OS_NAME" in
+    ubuntu|debian)
+      if sudo apt install -y "$agent_package"; then
+        echo "Hypervisor agent $agent_package installed successfully."
+        
+        # Enable and start services if applicable
+        case "$HYPERVISOR" in
+          vmware)
+            if command -v systemctl >/dev/null 2>&1; then
+              sudo systemctl enable --now open-vm-tools 2>/dev/null || true
+            fi
+            ;;
+          virtualbox)
+            if command -v systemctl >/dev/null 2>&1; then
+              sudo systemctl enable --now virtualbox-guest-utils 2>/dev/null || true
+            fi
+            ;;
+          kvm|qemu)
+            if command -v systemctl >/dev/null 2>&1; then
+              sudo systemctl enable --now qemu-guest-agent 2>/dev/null || true
+            fi
+            ;;
+        esac
+      else
+        echo "Warning: Failed to install hypervisor agent $agent_package."
+      fi
+      ;;
+    fedora)
+      if sudo dnf install -y "$agent_package"; then
+        echo "Hypervisor agent $agent_package installed successfully."
+        
+        # Enable and start services if applicable
+        case "$HYPERVISOR" in
+          vmware)
+            if command -v systemctl >/dev/null 2>&1; then
+              sudo systemctl enable --now vmtoolsd 2>/dev/null || true
+            fi
+            ;;
+          kvm|qemu)
+            if command -v systemctl >/dev/null 2>&1; then
+              sudo systemctl enable --now qemu-guest-agent 2>/dev/null || true
+            fi
+            ;;
+        esac
+      else
+        echo "Warning: Failed to install hypervisor agent $agent_package."
+      fi
+      ;;
+  esac
+}
+
 # Function to install marcosnils/bin
 install_bin_tool() {
   if command -v bin >/dev/null 2>&1; then
@@ -310,11 +384,15 @@ install_docker_linux() {
 echo "Running installer for $(get_os_display_name)..."
 if [[ "$OS_NAME" == "ubuntu" ]] || [[ "$OS_NAME" == "debian" ]]; then
   install_linux
+  # Install hypervisor agent for VMs
+  install_hypervisor_agent
   if [ "$INSTALL_DOCKER" = true ]; then
     install_docker_linux
   fi
 elif [[ "$OS_NAME" == "fedora" ]]; then
   install_fedora
+  # Install hypervisor agent for VMs
+  install_hypervisor_agent
   if [ "$INSTALL_DOCKER" = true ]; then
     install_docker_linux
   fi

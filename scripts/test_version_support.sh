@@ -41,8 +41,24 @@ else
 fi
 echo
 
+# Test hypervisor detection
+echo "3. Testing Hypervisor Detection:"
+detect_hypervisor
+echo "   - Hypervisor: $HYPERVISOR"
+echo "   - Display Name: $(get_hypervisor_name)"
+if is_virtual_machine; then
+  echo "   ✓ Running in virtual machine"
+  agent_package=$(get_hypervisor_agent_package "$HYPERVISOR")
+  if [ -n "$agent_package" ]; then
+    echo "   - Recommended agent: $agent_package"
+  fi
+else
+  echo "   ✓ Running on physical hardware"
+fi
+echo
+
 # Test package mappings
-echo "3. Testing Package Mappings:"
+echo "4. Testing Package Mappings:"
 TOOLS=(tmux git curl wget jq tree htop fzf ripgrep bat)
 
 for tool in "${TOOLS[@]}"; do
@@ -56,13 +72,13 @@ done
 echo
 
 # Test available tools
-echo "4. Available Tools for $(get_os_display_name):"
+echo "5. Available Tools for $(get_os_display_name):"
 available_tools=$(get_available_tools)
 echo "   $available_tools"
 echo
 
 # Test known OS versions (simulation)
-echo "5. Testing Known OS Version Mappings:"
+echo "6. Testing Known OS Version Mappings:"
 
 # Function to simulate package mapping for different OS versions
 test_package_mapping() {

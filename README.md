@@ -31,7 +31,8 @@ The toolkit automatically detects your OS version and variant, adapting package 
 ## Features
 
 - **Bootstrap scripts** for verifying and installing essential tools.
-- **Multi-scenario support** for different installation types (developer desktop, clean desktop, development server, production server).
+- **Multi-scenario support** for different installation types (developer desktop, clean desktop, development server, production server, docker host).
+- **Automatic hypervisor detection** for virtual machines with guest agent installation (VMware, VirtualBox, Hyper-V, KVM/QEMU, Xen).
 - **Dotfiles management** for shell and editor configuration.
 - **User-local installs** (no global contamination).
 - **Optional Docker CE installation** for containerized workflows.
@@ -177,6 +178,36 @@ bash scripts/bootstrap.sh --scenario=docker-host
 ```
 
 **Note:** After installation, you need to log out and back in (or run `newgrp docker`) for the docker group membership to take effect.
+
+---
+
+## Virtual Machine Support
+
+The bootstrap script automatically detects when running in a virtual machine and installs the appropriate hypervisor guest agent for optimal performance and integration.
+
+### Supported Hypervisors
+
+| Hypervisor | Ubuntu/Debian Agent | Fedora Agent | Auto-detection |
+|------------|-------------------|--------------|----------------|
+| VMware | open-vm-tools | open-vm-tools | ✓ |
+| VirtualBox | virtualbox-guest-utils | virtualbox-guest-additions | ✓ |
+| Hyper-V | hyperv-daemons | hyperv-daemons | ✓ |
+| KVM/QEMU | qemu-guest-agent | qemu-guest-agent | ✓ |
+| Xen | xen-guest-agent | xen-guest-agent | ✓ |
+
+### What Guest Agents Do
+
+Guest agents enable:
+- **Better performance**: Optimized drivers and services
+- **Time synchronization**: Keeps VM time in sync with host
+- **Clipboard sharing**: Copy/paste between host and guest (where supported)
+- **File sharing**: Shared folders functionality
+- **Dynamic resolution**: Automatic screen resolution adjustment
+- **Host communication**: Better integration with hypervisor management tools
+
+### Manual Installation
+
+If you're on physical hardware or want to skip agent installation, the script automatically detects this and continues without installing agents.
 
 ---
 

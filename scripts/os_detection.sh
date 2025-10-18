@@ -9,6 +9,7 @@ OS_CODENAME=""
 OS_MAJOR_VERSION=""
 OS_MINOR_VERSION=""
 OS_VARIANT=""
+HYPERVISOR=""
 
 # Detect OS distribution and version
 detect_os() {
@@ -150,6 +151,117 @@ get_package_manager() {
       ;;
     *)
       echo "unknown"
+      ;;
+  esac
+}
+
+# Detect hypervisor/VM platform
+detect_hypervisor() {
+  HYPERVISOR="none"
+  
+  # Skip on macOS
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    return 0
+  fi
+  
+  # Check systemd-detect-virt if available (most reliable)
+  if command -v systemd-detect-virt >/dev/null 2>&1; then
+    local virt_type
+    virt_type=$(systemd-detect-virt 2>/dev/null)
+    
+    case "$virt_type" in
+      kvm)
+        HYPERVISOR="kvm"
+        ;;
+      qemu)
+        HYPERVISOR="qemu"
+        ;;
+      vmware)
+        HYPERVISOR="vmware"
+        ;;
+      microsoft)
+        HYPERVISOR="hyperv"
+        ;;
+      xen)
+        HYPERVISOR="xen"
+        ;;
+      oracle)
+        HYPERVISOR="virtualbox"
+        ;;
+      parallels)
+        HYPERVISOR="parallels"
+        ;;
+      none)
+        HYPERVISOR="none"
+        ;;
+    esac
+  fi
+  
+  # Fallback: Check dmesg and system files
+  if [ "$HYPERVISOR" = "none" ]; then
+    # Check for VMware
+    if sudo dmesg 2>/dev/null | grep -qi "vmware" || \
+       [ -d /proc/vz ] || \
+       lspci 2>/dev/null | grep -qi "vmware"; then
+      HYPERVISOR="vmware"
+    # Check for VirtualBox
+    elif sudo dmesg 2>/dev/null | grep -qi "vbox" || \
+         lspci 2>/dev/null | grep -qi "virtualbox"; then
+      HYPERVISOR="virtualbox"
+    # Check for Hyper-V
+    elif sudo dmesg 2>/dev/null | grep -qi "hyperv" || \
+         lspci 2>/dev/null | grep -qi "microsoft.*hyper-v"; then
+      HYPERVISOR="hyperv"
+    # Check for KVM/QEMU
+    elif sudo dmesg 2>/dev/null | grep -qi "kvm" || \
+         [ -e /dev/kvm ] || \
+         lscpu 2>/dev/null | grep -qi "kvm"; then
+      HYPERVISOR="kvm"
+    # Check for Xen
+    elif sudo dmesg 2>/dev/null | grep -qi "xen" || \
+         [ -d /proc/xen ]; then
+      HYPERVISOR="xen"
+    fi
+  fi
+  
+  return 0
+}
+
+# Check if running in a VM
+is_virtual_machine() {
+  detect_hypervisor
+  if [ "$HYPERVISOR" != "none" ]; then
+    return 0
+  fi
+  return 1
+}
+
+# Get hypervisor display name
+get_hypervisor_name() {
+  case "$HYPERVISOR" in
+    vmware)
+      echo "VMware"
+      ;;
+    virtualbox)
+      echo "VirtualBox"
+      ;;
+    hyperv)
+      echo "Hyper-V"
+      ;;
+    kvm|qemu)
+      echo "KVM/QEMU"
+      ;;
+    xen)
+      echo "Xen"
+      ;;
+    parallels)
+      echo "Parallels"
+      ;;
+    none)
+      echo "Physical Machine"
+      ;;
+    *)
+      echo "Unknown"
       ;;
   esac
 }

@@ -299,3 +299,99 @@ install_custom_tool() {
   esac
 }
 ```
+
+## Adding Hypervisor Support
+
+### Adding a New Hypervisor
+
+To add support for a new hypervisor (e.g., Nutanix AHV):
+
+#### 1. Update os_detection.sh
+
+Add detection logic in `detect_hypervisor()`:
+
+```bash
+detect_hypervisor() {
+  # ... existing code ...
+  
+  # Add your hypervisor detection
+  if sudo dmesg 2>/dev/null | grep -qi "nutanix" || \
+     lspci 2>/dev/null | grep -qi "nutanix"; then
+    HYPERVISOR="nutanix"
+  fi
+  
+  return 0
+}
+
+# Add display name in get_hypervisor_name()
+get_hypervisor_name() {
+  case "$HYPERVISOR" in
+    # ... existing cases ...
+    nutanix)
+      echo "Nutanix AHV"
+      ;;
+  esac
+}
+```
+
+#### 2. Update package_mappings.sh
+
+Add agent package names:
+
+```bash
+declare -A HYPERVISOR_AGENTS_UBUNTU=(
+  # ... existing entries ...
+  ["nutanix"]="nutanix-guest-tools"
+)
+
+declare -A HYPERVISOR_AGENTS_DEBIAN=(
+  # ... existing entries ...
+  ["nutanix"]="nutanix-guest-tools"
+)
+
+declare -A HYPERVISOR_AGENTS_FEDORA=(
+  # ... existing entries ...
+  ["nutanix"]="nutanix-guest-tools"
+)
+```
+
+#### 3. Update bootstrap.sh (if needed)
+
+Add service startup logic in `install_hypervisor_agent()`:
+
+```bash
+case "$HYPERVISOR" in
+  # ... existing cases ...
+  nutanix)
+    if command -v systemctl >/dev/null 2>&1; then
+      sudo systemctl enable --now nutanix-guest-tools 2>/dev/null || true
+    fi
+    ;;
+esac
+```
+
+### Detection Methods
+
+Common methods for hypervisor detection:
+
+1. **systemd-detect-virt** (most reliable when available)
+2. **dmesg output**: Look for hypervisor-specific messages
+3. **lspci**: Check for virtualization hardware
+4. **System files**: Check for hypervisor-specific directories/files
+   - `/proc/vz` - OpenVZ/Virtuozzo
+   - `/proc/xen` - Xen
+   - `/dev/kvm` - KVM
+
+### Testing Hypervisor Detection
+
+```bash
+# Test detection
+source scripts/os_detection.sh
+detect_hypervisor
+echo "Detected: $HYPERVISOR ($(get_hypervisor_name))"
+
+# Test agent package mapping
+source scripts/package_mappings.sh
+agent=$(get_hypervisor_agent_package "$HYPERVISOR")
+echo "Agent package: $agent"
+```
