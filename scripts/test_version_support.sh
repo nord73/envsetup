@@ -22,6 +22,8 @@ if detect_os; then
   echo "   - OS Version: $OS_VERSION"
   echo "   - OS Codename: $OS_CODENAME"
   echo "   - Major Version: $OS_MAJOR_VERSION"
+  echo "   - Minor Version: $OS_MINOR_VERSION"
+  echo "   - Variant: $OS_VARIANT"
   echo "   - Display Name: $(get_os_display_name)"
   echo "   - Package Manager: $(get_package_manager)"
 else
@@ -41,7 +43,7 @@ echo
 
 # Test package mappings
 echo "3. Testing Package Mappings:"
-TOOLS=(git curl wget tree htop fzf ripgrep bat jq)
+TOOLS=(tmux git curl wget jq tree htop fzf ripgrep bat)
 
 for tool in "${TOOLS[@]}"; do
   if is_tool_available "$tool"; then
@@ -87,11 +89,16 @@ test_package_mapping() {
 
 # Test different OS/version combinations
 test_package_mapping "ubuntu" "20" "bat"
+test_package_mapping "ubuntu" "21" "bat"
 test_package_mapping "ubuntu" "22" "bat"
+test_package_mapping "ubuntu" "23" "bat"
 test_package_mapping "ubuntu" "24" "bat"
 test_package_mapping "debian" "11" "bat"
 test_package_mapping "debian" "12" "bat"
 test_package_mapping "debian" "13" "bat"
+test_package_mapping "fedora" "35" "bat"
+test_package_mapping "fedora" "38" "bat"
+test_package_mapping "fedora" "40" "bat"
 echo
 
 echo "=== Test Complete ==="
