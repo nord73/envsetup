@@ -41,6 +41,7 @@ The toolkit automatically detects your OS version and variant, adapting package 
 - **Optional Docker CE installation** for containerized workflows.
 - **Support for marcosnils/bin** for clean binary installations.
 - **Extensible tool list** for easy customization.
+- **ZFS-on-root installer** for Debian 13 with advanced features.
 
 ---
 
