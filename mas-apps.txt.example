@@ -1,0 +1,15 @@
+# Mac App Store Applications to install via mas-cli
+# One app ID per line - find IDs with: mas search "App Name"
+#
+# Common Applications:
+# 497799835   # Xcode
+# 1333542190  # 1Password 7
+# 1295203466  # Microsoft Remote Desktop
+# 441258766   # Magnet
+# 1176895641  # Spark
+# 803453959   # Slack (also available via Homebrew Cask)
+#
+# Note: You must be signed in to the Mac App Store for installations to work
+# Sign in with: mas signin your@email.com
+#
+# Uncomment app IDs you want to install, or add your own
