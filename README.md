@@ -27,6 +27,12 @@ This repo helps bootstrap a clean development environment with essential tools, 
 - **Package installation**: Command-line tools via Homebrew
 - **App installation**: GUI applications via Homebrew Cask and Mac App Store (mas-cli)
 
+**📖 New to macOS setup? See [MACOS_SETUP.md](MACOS_SETUP.md) for comprehensive guidance on:**
+- Setting up from a clean install (cmd-R recovery)
+- Account strategies to avoid system contamination
+- Choosing between pristine/production vs full development scenarios
+- Best practices for maintaining a clean macOS environment
+
 The toolkit automatically detects your OS version and variant, adapting package installation accordingly. It handles version-specific differences like package names and repository configurations.
 
 ---
@@ -46,6 +52,8 @@ The toolkit automatically detects your OS version and variant, adapting package 
 ---
 
 ## Quick Start
+
+> **macOS Users:** For comprehensive guidance on setting up from a clean install, see **[MACOS_SETUP.md](MACOS_SETUP.md)**
 
 ### 1. Clone the repo
 
@@ -122,11 +130,13 @@ bash scripts/bootstrap.sh --scenario=development-server --docker --bin
 ## Installation Scenarios
 
 ### Developer Desktop
-Best for: Local development workstations
+Best for: Local development workstations, full-featured "all-inclusive" dev environments
 
 **Includes:**
 - Base packages: `tmux`, `git`, `curl`, `wget`, `jq`
 - Developer tools: `tree`, `htop`, `fzf`, `ripgrep`, `bat`
+
+**macOS Use Case:** Your "dirty all-inclusive" dev station with comprehensive tooling
 
 **Usage:**
 ```bash
@@ -134,10 +144,12 @@ bash scripts/bootstrap.sh --scenario=developer-desktop
 ```
 
 ### Clean Desktop
-Best for: Minimal desktop installations, lightweight systems
+Best for: Minimal desktop installations, lightweight systems, pristine production desktops
 
 **Includes:**
 - Base packages only: `tmux`, `git`, `curl`, `wget`, `jq`
+
+**macOS Use Case:** Perfect for a "pristine" production desktop that stays clean and minimal
 
 **Usage:**
 ```bash
@@ -216,6 +228,12 @@ If you're on physical hardware or want to skip agent installation, the script au
 ---
 
 ## macOS Support
+
+> **💡 Planning a clean macOS setup?** See **[MACOS_SETUP.md](MACOS_SETUP.md)** for a complete guide covering:
+> - Initial setup from cmd-R (Recovery Mode)
+> - Account strategies to keep your system clean
+> - Different scenarios: pristine production desktop vs full development workstation
+> - Best practices for reproducible, uncontaminated macOS environments
 
 ### Homebrew Installation
 
