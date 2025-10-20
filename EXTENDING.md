@@ -201,7 +201,7 @@ if [ "$OS_MAJOR_VERSION" = "23" ]; then
 fi
 ```
 
-## macOS Application Management
+## Application and Package Management
 
 > **💡 For complete macOS setup guidance, see [MACOS_SETUP.md](MACOS_SETUP.md)**
 

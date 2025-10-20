@@ -1,6 +1,8 @@
 # User-specific app lists (examples are committed)
 macos-apps.txt
 mas-apps.txt
+linux-packages.txt
+flatpak-apps.txt
 
 # Temporary files
 *.tmp

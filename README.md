@@ -277,11 +277,52 @@ If you prefer the official system-wide Homebrew installation to `/opt/homebrew` 
 
 2. Run the bootstrap script - it will detect the existing Homebrew installation
 
-### Installing macOS Applications
+### Installing Applications and Packages
 
-The bootstrap script supports installing GUI applications on macOS:
+The bootstrap script supports installing additional applications and packages beyond the essential tools.
 
-#### Homebrew Cask Applications
+#### Linux Package Installation
+
+Install additional packages on Ubuntu, Debian, or Fedora by creating a `linux-packages.txt` file:
+
+```bash
+# Create linux-packages.txt with packages to install
+cat > linux-packages.txt << EOF
+neovim
+nodejs
+npm
+python3-pip
+firefox
+vlc
+EOF
+
+# Run bootstrap to install packages
+bash scripts/bootstrap.sh --packages
+```
+
+The script will use the appropriate package manager (`apt` for Ubuntu/Debian, `dnf` for Fedora).
+
+#### Flatpak Applications
+
+Install Flatpak applications on Linux by creating a `flatpak-apps.txt` file:
+
+```bash
+# Create flatpak-apps.txt with Flatpak app IDs
+cat > flatpak-apps.txt << EOF
+com.visualstudio.code
+com.slack.Slack
+org.mozilla.firefox
+org.videolan.VLC
+EOF
+
+# Run bootstrap to install Flatpak apps
+bash scripts/bootstrap.sh --flatpak
+```
+
+**Finding App IDs:**
+Browse [Flathub](https://flathub.org/) to find application IDs.
+
+#### macOS Applications
 
 Install applications via Homebrew Cask by creating a `macos-apps.txt` file:
 
@@ -326,9 +367,13 @@ mas list
 
 #### Combined Installation
 
-Install both command-line tools and applications:
+Install multiple types of applications and packages:
 
 ```bash
+# Linux
+bash scripts/bootstrap.sh --packages --flatpak
+
+# macOS
 bash scripts/bootstrap.sh --apps --mas
 ```
 
