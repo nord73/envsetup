@@ -1,0 +1,49 @@
+# Linux Packages to install via system package manager
+# One package per line - works with apt (Ubuntu/Debian) and dnf (Fedora)
+#
+# Common Development Tools:
+# neovim
+# emacs
+# vim-gtk3
+# code  # VS Code (requires Microsoft repository)
+# nodejs
+# npm
+# python3-pip
+# golang
+#
+# System Tools:
+# terminator
+# tilix
+# yakuake
+# tmuxinator
+# zoxide
+# fd-find
+# exa
+#
+# Productivity:
+# flameshot
+# redshift
+# redshift-gtk
+# gnome-tweaks
+# dconf-editor
+#
+# Media:
+# vlc
+# mpv
+# gimp
+# inkscape
+#
+# Browsers (may require additional repositories):
+# firefox
+# chromium-browser
+# brave-browser
+#
+# Communication:
+# thunderbird
+# telegram-desktop
+# discord
+#
+# Note: Some packages may have different names on different distributions
+# The script will attempt to install packages that are available in your repos
+#
+# Uncomment packages you want to install, or add your own

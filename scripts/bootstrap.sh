@@ -37,6 +37,8 @@ INSTALL_DOCKER=false
 INSTALL_BIN_TOOL=false
 INSTALL_MACOS_APPS=false
 INSTALL_MAS_APPS=false
+INSTALL_LINUX_PACKAGES=false
+INSTALL_FLATPAK_APPS=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -55,6 +57,12 @@ for arg in "$@"; do
     --mas)
       INSTALL_MAS_APPS=true
       ;;
+    --packages)
+      INSTALL_LINUX_PACKAGES=true
+      ;;
+    --flatpak)
+      INSTALL_FLATPAK_APPS=true
+      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
@@ -65,6 +73,8 @@ for arg in "$@"; do
       echo "  --bin              Install marcosnils/bin tool"
       echo "  --apps             Install macOS applications from macos-apps.txt (Homebrew Cask)"
       echo "  --mas              Install macOS App Store applications from mas-apps.txt"
+      echo "  --packages         Install Linux packages from linux-packages.txt (Ubuntu/Debian/Fedora)"
+      echo "  --flatpak          Install Flatpak applications from flatpak-apps.txt"
       echo "  --help             Show this help message"
       exit 0
       ;;
@@ -305,6 +315,135 @@ install_mas_apps() {
   echo "Mac App Store app installation complete."
 }
 
+# Function to install Linux packages via system package manager
+install_linux_packages() {
+  local packages_file="linux-packages.txt"
+  
+  if [ ! -f "$packages_file" ]; then
+    echo "No $packages_file found. Skipping Linux package installation."
+    echo "Create $packages_file with package names (one per line) to install additional packages."
+    return 0
+  fi
+  
+  echo "Installing Linux packages from $packages_file..."
+  
+  # Determine package manager
+  local pkg_manager
+  case "$OS_NAME" in
+    ubuntu|debian)
+      pkg_manager="apt"
+      echo "Updating package list..."
+      sudo apt update
+      ;;
+    fedora)
+      pkg_manager="dnf"
+      echo "Updating package list..."
+      sudo dnf check-update || true
+      ;;
+    *)
+      echo "Unsupported OS for Linux package installation: $OS_NAME"
+      return 1
+      ;;
+  esac
+  
+  while IFS= read -r package || [ -n "$package" ]; do
+    # Skip empty lines and comments
+    [[ -z "$package" || "$package" =~ ^[[:space:]]*# ]] && continue
+    
+    # Trim whitespace
+    package=$(echo "$package" | xargs)
+    
+    echo "Installing $package via $pkg_manager..."
+    case "$pkg_manager" in
+      apt)
+        if sudo apt install -y "$package" 2>/dev/null; then
+          echo "✓ $package installed successfully."
+        else
+          echo "⚠ Failed to install $package (may already be installed or not found in repositories)."
+        fi
+        ;;
+      dnf)
+        if sudo dnf install -y "$package" 2>/dev/null; then
+          echo "✓ $package installed successfully."
+        else
+          echo "⚠ Failed to install $package (may already be installed or not found in repositories)."
+        fi
+        ;;
+    esac
+  done < "$packages_file"
+  
+  echo "Linux package installation complete."
+}
+
+# Function to install Flatpak applications
+install_flatpak_apps() {
+  local flatpak_file="flatpak-apps.txt"
+  
+  # Check if flatpak is installed
+  if ! command -v flatpak >/dev/null 2>&1; then
+    echo "Flatpak is not installed. Installing flatpak..."
+    
+    case "$OS_NAME" in
+      ubuntu|debian)
+        if sudo apt install -y flatpak; then
+          echo "Flatpak installed successfully."
+        else
+          echo "Failed to install Flatpak. Skipping Flatpak app installations."
+          return 1
+        fi
+        ;;
+      fedora)
+        if sudo dnf install -y flatpak; then
+          echo "Flatpak installed successfully."
+        else
+          echo "Failed to install Flatpak. Skipping Flatpak app installations."
+          return 1
+        fi
+        ;;
+      *)
+        echo "Cannot install Flatpak on $OS_NAME. Skipping Flatpak app installations."
+        return 1
+        ;;
+    esac
+  fi
+  
+  # Check if Flathub is configured
+  if ! flatpak remotes | grep -q flathub; then
+    echo "Adding Flathub repository..."
+    if flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo; then
+      echo "Flathub repository added successfully."
+    else
+      echo "Warning: Failed to add Flathub repository."
+    fi
+  fi
+  
+  if [ ! -f "$flatpak_file" ]; then
+    echo "No $flatpak_file found. Skipping Flatpak app installation."
+    echo "Create $flatpak_file with Flatpak app IDs (one per line) to install apps."
+    echo "Find app IDs at https://flathub.org/"
+    return 0
+  fi
+  
+  echo "Installing Flatpak applications from $flatpak_file..."
+  
+  while IFS= read -r app_id || [ -n "$app_id" ]; do
+    # Skip empty lines and comments
+    [[ -z "$app_id" || "$app_id" =~ ^[[:space:]]*# ]] && continue
+    
+    # Trim whitespace
+    app_id=$(echo "$app_id" | xargs)
+    
+    echo "Installing Flatpak app: $app_id..."
+    if flatpak install -y flathub "$app_id" 2>/dev/null; then
+      echo "✓ $app_id installed successfully."
+    else
+      echo "⚠ Failed to install $app_id (may already be installed or not found on Flathub)."
+    fi
+  done < "$flatpak_file"
+  
+  echo "Flatpak app installation complete."
+}
+
 # Function to install hypervisor guest agent
 install_hypervisor_agent() {
   # Detect hypervisor
@@ -496,12 +635,32 @@ if [[ "$OS_NAME" == "ubuntu" ]] || [[ "$OS_NAME" == "debian" ]]; then
   if [ "$INSTALL_DOCKER" = true ]; then
     install_docker_linux
   fi
+  
+  # Install additional Linux packages if requested
+  if [ "$INSTALL_LINUX_PACKAGES" = true ]; then
+    install_linux_packages
+  fi
+  
+  # Install Flatpak apps if requested
+  if [ "$INSTALL_FLATPAK_APPS" = true ]; then
+    install_flatpak_apps
+  fi
 elif [[ "$OS_NAME" == "fedora" ]]; then
   install_fedora
   # Install hypervisor agent for VMs
   install_hypervisor_agent
   if [ "$INSTALL_DOCKER" = true ]; then
     install_docker_linux
+  fi
+  
+  # Install additional Linux packages if requested
+  if [ "$INSTALL_LINUX_PACKAGES" = true ]; then
+    install_linux_packages
+  fi
+  
+  # Install Flatpak apps if requested
+  if [ "$INSTALL_FLATPAK_APPS" = true ]; then
+    install_flatpak_apps
   fi
 elif [[ "$OS_NAME" == "macos" ]]; then
   install_macos

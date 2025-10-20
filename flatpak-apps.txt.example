@@ -1,0 +1,33 @@
+# Flatpak Applications to install
+# One app ID per line - find IDs at https://flathub.org/
+#
+# Common Development Tools:
+# com.visualstudio.code
+# com.jetbrains.IntelliJ-IDEA-Community
+# org.mozilla.firefox
+# com.google.Chrome
+#
+# Communication:
+# com.slack.Slack
+# com.discordapp.Discord
+# org.telegram.desktop
+# us.zoom.Zoom
+#
+# Productivity:
+# org.libreoffice.LibreOffice
+# com.obsproject.Studio
+# org.gimp.GIMP
+# org.inkscape.Inkscape
+# org.blender.Blender
+#
+# Media:
+# org.videolan.VLC
+# io.mpv.Mpv
+# com.spotify.Client
+#
+# Note: Flatpak must be installed and Flathub repository configured
+# Install Flatpak with: sudo apt install flatpak (Ubuntu/Debian)
+#                       sudo dnf install flatpak (Fedora)
+# Add Flathub: flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+#
+# Uncomment app IDs you want to install, or add your own

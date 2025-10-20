@@ -201,9 +201,89 @@ if [ "$OS_MAJOR_VERSION" = "23" ]; then
 fi
 ```
 
-## macOS Application Management
+## Application and Package Management
 
-### Installing GUI Applications
+### Installing Linux Packages
+
+The bootstrap script supports installing additional Linux packages via system package managers (apt, dnf).
+
+#### System Packages
+
+Create a `linux-packages.txt` file with package names:
+
+```bash
+# linux-packages.txt
+neovim
+nodejs
+npm
+python3-pip
+firefox
+thunderbird
+vlc
+```
+
+Install with:
+```bash
+bash scripts/bootstrap.sh --packages
+```
+
+The script will:
+- Use `apt` for Ubuntu/Debian
+- Use `dnf` for Fedora
+- Skip packages that are already installed or not available
+- Display success/warning messages for each package
+
+**Note:** Some packages may have different names across distributions. The script will attempt to install packages as-is, so you may need to adjust package names for your specific distribution.
+
+#### Flatpak Applications
+
+Create a `flatpak-apps.txt` file with Flatpak app IDs:
+
+```bash
+# flatpak-apps.txt
+com.visualstudio.code
+com.slack.Slack
+org.mozilla.firefox
+org.videolan.VLC
+org.gimp.GIMP
+```
+
+Install with:
+```bash
+bash scripts/bootstrap.sh --flatpak
+```
+
+**Finding App IDs:**
+- Browse: https://flathub.org/
+- Search: `flatpak search <app-name>`
+- List installed: `flatpak list`
+
+The script will:
+- Install Flatpak if not already installed
+- Add the Flathub repository if not configured
+- Install each application from Flathub
+- Skip apps that are already installed
+
+### Customizing Linux Package Lists
+
+Edit the example files to create your own package lists:
+
+```bash
+# Copy examples
+cp linux-packages.txt.example linux-packages.txt
+cp flatpak-apps.txt.example flatpak-apps.txt
+
+# Edit with your preferred packages/apps
+vim linux-packages.txt
+vim flatpak-apps.txt
+
+# Install
+bash scripts/bootstrap.sh --packages --flatpak
+```
+
+The `.gitignore` excludes your personal package lists, so they won't be committed to version control.
+
+### Installing macOS Applications
 
 The bootstrap script supports installing macOS applications via two methods:
 
