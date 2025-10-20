@@ -285,6 +285,8 @@ The `.gitignore` excludes your personal package lists, so they won't be committe
 
 ### Installing macOS Applications
 
+> **💡 For complete macOS setup guidance, see [MACOS_SETUP.md](MACOS_SETUP.md)**
+
 The bootstrap script supports installing macOS applications via two methods:
 
 #### Homebrew Cask Applications
