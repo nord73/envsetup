@@ -203,6 +203,8 @@ fi
 
 ## macOS Application Management
 
+> **💡 For complete macOS setup guidance, see [MACOS_SETUP.md](MACOS_SETUP.md)**
+
 ### Installing GUI Applications
 
 The bootstrap script supports installing macOS applications via two methods:
