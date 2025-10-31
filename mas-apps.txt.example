@@ -1,15 +1,43 @@
 # Mac App Store Applications to install via mas-cli
 # One app ID per line - find IDs with: mas search "App Name"
 #
-# Common Applications:
-# 497799835   # Xcode
-# 1333542190  # 1Password 7
+# === Development ===
+# 497799835   # Xcode - Apple's IDE (required for iOS/macOS development)
+# 640199958   # Apple Developer - Developer app
+#
+# === Productivity ===
+# 1295203466  # Microsoft Remote Desktop - Remote access
+# 441258766   # Magnet - Window management ($4.99)
+# 937984704   # Amphetamine - Keep Mac awake (free)
+# 1480933944  # Vimari - Vim keybindings for Safari
+#
+# === Password Managers ===
+# 1333542190  # 1Password 7 - Password manager (subscription)
+# 1352778147  # Bitwarden - Open source password manager
+#
+# === Communication ===
+# 803453959   # Slack - Team messaging (also available via Homebrew)
+# 1482454543  # Twitter - Social media client
+#
+# === Utilities ===
+# 441258766   # Magnet - Window manager
+# 425424353   # The Unarchiver - Archive extraction
 # 1295203466  # Microsoft Remote Desktop
-# 441258766   # Magnet
-# 1176895641  # Spark
-# 803453959   # Slack (also available via Homebrew Cask)
+# 409203825   # Numbers - Apple spreadsheet app
+# 409201541   # Pages - Apple word processor
+# 409183694   # Keynote - Apple presentation app
+#
+# === Media ===
+# 1482454543  # Twitter
+# 1147396723  # WhatsApp Desktop
 #
 # Note: You must be signed in to the Mac App Store for installations to work
 # Sign in with: mas signin your@email.com
+# Or sign in via the App Store app in GUI
+#
+# Find app IDs:
+# - Search: mas search "App Name"
+# - List installed: mas list
+# - Browse: https://apps.apple.com/ (ID is in URL)
 #
 # Uncomment app IDs you want to install, or add your own

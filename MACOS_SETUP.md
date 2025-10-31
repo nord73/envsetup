@@ -5,9 +5,16 @@ This guide provides comprehensive best practices for setting up a clean macOS sy
 ## Table of Contents
 
 - [Initial Setup from cmd-R](#initial-setup-from-cmd-r)
+- [Apple Silicon Considerations](#apple-silicon-considerations)
+- [Developer Tools Setup](#developer-tools-setup)
 - [Account Strategy](#account-strategy)
 - [Setup Scenarios](#setup-scenarios)
 - [Installation Order](#installation-order)
+- [Modern Tool Recommendations](#modern-tool-recommendations)
+- [Shell Configuration](#shell-configuration)
+- [Security Best Practices](#security-best-practices)
+- [Performance Optimization](#performance-optimization)
+- [Backup Strategy](#backup-strategy)
 - [Best Practices](#best-practices)
 
 ---
@@ -54,6 +61,138 @@ Before installing anything:
    xcode-select --install
    ```
 3. **Configure Basic Settings**: Display, trackpad, dock preferences
+
+---
+
+## Apple Silicon Considerations
+
+If you have an Apple Silicon Mac (M1, M2, M3, M4, or later), there are additional considerations:
+
+### Rosetta 2 Installation
+
+Rosetta 2 allows Intel-based applications to run on Apple Silicon Macs. While many apps are now native, some may still require Rosetta 2.
+
+**Check if Rosetta 2 is installed:**
+```bash
+/usr/bin/pgrep -q oahd && echo "Rosetta 2 is installed" || echo "Rosetta 2 is not installed"
+```
+
+**Install Rosetta 2:**
+```bash
+softwareupdate --install-rosetta --agree-to-license
+```
+
+**When to install Rosetta 2:**
+- ✓ If you need to run any Intel-only applications
+- ✓ If you use development tools that haven't been updated to ARM
+- ✓ If you're unsure (it's small and harmless to have installed)
+- ✗ If you're strictly running only Apple Silicon native apps
+
+### Homebrew on Apple Silicon
+
+Homebrew on Apple Silicon installs to `/opt/homebrew` (instead of `/usr/local` on Intel Macs).
+
+**envsetup handles this automatically:**
+- User-local installation: `~/.brew` (works on both Intel and Apple Silicon)
+- System-wide installation: Script detects and uses existing Homebrew at correct location
+
+**Architecture-specific considerations:**
+```bash
+# Check your Mac's architecture
+uname -m  # arm64 = Apple Silicon, x86_64 = Intel
+
+# If using system Homebrew, confirm installation path
+which brew  # /opt/homebrew/bin/brew (Apple Silicon) or /usr/local/bin/brew (Intel)
+```
+
+### Running Intel Applications
+
+Some applications may still be Intel-only:
+
+```bash
+# Check if an application is running under Rosetta
+# In Activity Monitor, add the "Kind" column
+# "Apple" = Native, "Intel" = Running under Rosetta
+
+# Or check from command line
+file /Applications/YourApp.app/Contents/MacOS/YourApp
+```
+
+### Performance Notes
+
+- **Native apps** perform significantly better than Intel apps under Rosetta
+- **Prefer native versions** when available (check developer websites)
+- **Docker considerations**: Docker Desktop runs natively on Apple Silicon but can run both ARM and x86_64 containers
+
+---
+
+## Developer Tools Setup
+
+### Command Line Tools
+
+The Xcode Command Line Tools are essential for most development work:
+
+**Installation:**
+```bash
+xcode-select --install
+```
+
+**Verification:**
+```bash
+xcode-select -p
+# Should output: /Library/Developer/CommandLineTools
+```
+
+**Troubleshooting:**
+```bash
+# If having issues, reset and reinstall
+sudo rm -rf /Library/Developer/CommandLineTools
+xcode-select --install
+```
+
+### Xcode (Full IDE)
+
+Only install if you need iOS/macOS development:
+
+**Option 1: Mac App Store (Recommended)**
+```bash
+# Using mas-cli (install via envsetup with --mas flag)
+mas install 497799835  # Xcode
+```
+
+**Option 2: Direct Download**
+- Visit https://developer.apple.com/download/
+- Download Xcode
+- Move to Applications folder
+- First launch: `sudo xcodebuild -license accept`
+
+**Size consideration:** Xcode is large (~12-15GB). Only install if needed.
+
+### Git Configuration
+
+After installing git via envsetup, configure it:
+
+```bash
+git config --global user.name "Your Name"
+git config --global user.email "your.email@example.com"
+git config --global init.defaultBranch main
+git config --global pull.rebase false  # or true, based on preference
+```
+
+**Optional but recommended:**
+```bash
+# Better diff output
+git config --global diff.algorithm histogram
+
+# Helpful aliases
+git config --global alias.st status
+git config --global alias.co checkout
+git config --global alias.br branch
+git config --global alias.lg "log --graph --oneline --decorate --all"
+
+# macOS-specific: Use macOS keychain for credentials
+git config --global credential.helper osxkeychain
+```
 
 ---
 
@@ -304,6 +443,677 @@ Follow this order for the cleanest setup:
 2. ✅ Set up shell preferences
 3. ✅ Configure git, SSH keys, etc.
 4. ✅ Install language runtimes (Node.js, Python, etc.) as needed
+
+---
+
+## Modern Tool Recommendations
+
+Beyond the base tools provided by envsetup, consider these modern alternatives and productivity enhancers:
+
+### Terminal Emulators
+
+**iTerm2** (Traditional, Highly Configurable)
+```bash
+# Add to macos-apps.txt
+iterm2
+```
+- ✓ Split panes, profiles, extensive customization
+- ✓ Free and open source
+- ✓ Well-established, stable
+
+**Warp** (Modern, AI-Enhanced)
+```bash
+# Add to macos-apps.txt
+warp
+```
+- ✓ Modern UI with blocks and workflows
+- ✓ AI command suggestions
+- ✓ Built-in collaboration features
+- ⚠ Requires account (free tier available)
+
+**Alacritty** (Fast, Minimal)
+```bash
+brew install --cask alacritty
+```
+- ✓ GPU-accelerated, extremely fast
+- ✓ Minimal, focused on performance
+- ✗ Less features than iTerm2/Warp
+
+### Web Browsers
+
+**Arc** (Modern, Productivity-Focused)
+```bash
+# Add to macos-apps.txt
+arc
+```
+- ✓ Vertical tabs, spaces for organization
+- ✓ Built-in ad blocker, split view
+- ✓ Native macOS design
+- ⚠ Invitation or waitlist may be required
+
+**Brave** (Privacy-Focused)
+```bash
+# Add to macos-apps.txt
+brave-browser
+```
+- ✓ Built-in ad blocking and privacy features
+- ✓ Chromium-based (Chrome extension compatible)
+- ✓ Crypto wallet integration (optional)
+
+### Productivity Tools
+
+**Raycast** (Spotlight Replacement)
+```bash
+# Add to macos-apps.txt
+raycast
+```
+- ✓ Extensible launcher with plugins
+- ✓ Clipboard history, snippets, scripts
+- ✓ Window management, calculator, and more
+- ✓ Free for personal use
+
+**Rectangle** (Window Management)
+```bash
+# Add to macos-apps.txt
+rectangle
+```
+- ✓ Keyboard shortcuts for window tiling
+- ✓ Free and open source
+- ✓ Simple, lightweight
+
+**Alternatives:** Rectangle Pro (paid), Magnet (paid), BetterSnapTool (paid)
+
+**Fig** (Terminal Autocomplete)
+```bash
+# Add to macos-apps.txt
+fig
+```
+- ✓ IDE-style autocomplete for terminal
+- ✓ Works with any shell
+- ✓ Command documentation inline
+- ⚠ Now owned by AWS (uncertainty about future)
+
+### Development Tools
+
+**Visual Studio Code** (Most Popular Editor)
+```bash
+# Add to macos-apps.txt
+visual-studio-code
+```
+- ✓ Extensive extension ecosystem
+- ✓ Built-in Git integration
+- ✓ Remote development support
+
+**Docker Desktop** (Containerization)
+```bash
+# Add to macos-apps.txt
+docker
+```
+- ✓ Native Apple Silicon support
+- ✓ Kubernetes integration
+- ⚠ Resource intensive
+
+**Postman** (API Development)
+```bash
+# Add to macos-apps.txt
+postman
+```
+- ✓ API testing and documentation
+- ✓ Collection management
+- ✓ Team collaboration features
+
+### Command Line Utilities
+
+**Modern Replacements for Classic Tools:**
+
+```bash
+# Add to your packages or install via Homebrew
+brew install \
+  eza          # Modern 'ls' with colors and icons \
+  bat          # Better 'cat' with syntax highlighting \
+  ripgrep      # Faster 'grep' \
+  fd           # Faster 'find' \
+  zoxide       # Smarter 'cd' with frecency \
+  httpie       # Better 'curl' for APIs \
+  tldr         # Simpler 'man' pages \
+  duf          # Better 'df' \
+  dust         # Better 'du' \
+  procs        # Modern 'ps' \
+  bottom       # Better 'top/htop' \
+  delta        # Better git diff
+```
+
+### Recommended Apps Configuration Example
+
+```bash
+# macos-apps.txt - Developer Setup
+iterm2
+warp
+visual-studio-code
+docker
+postman
+rectangle
+raycast
+arc
+firefox
+slack
+notion
+obsidian
+```
+
+```bash
+# mas-apps.txt - Mac App Store
+497799835   # Xcode (if doing iOS/macOS dev)
+441258766   # Magnet (alternative to Rectangle)
+1295203466  # Microsoft Remote Desktop
+```
+
+---
+
+## Shell Configuration
+
+macOS uses Zsh as the default shell since macOS Catalina (10.15). Proper shell configuration enhances productivity.
+
+### Zsh Setup
+
+**Default Shell Verification:**
+```bash
+echo $SHELL
+# Should output: /bin/zsh
+```
+
+**Configuration File:**
+Your main Zsh configuration file is `~/.zshrc`
+
+### Oh My Zsh (Optional Framework)
+
+**Installation:**
+```bash
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+```
+
+**Benefits:**
+- ✓ Plugin system for common tools (git, docker, etc.)
+- ✓ Theme system for prompt customization
+- ✓ Auto-updates
+- ⚠ Can slow down shell startup if overused
+
+**Recommended Plugins:**
+```bash
+# In ~/.zshrc
+plugins=(git brew macos docker kubectl zoxide fzf)
+```
+
+### Starship Prompt (Modern Alternative)
+
+**Installation:**
+```bash
+brew install starship
+
+# Add to ~/.zshrc
+echo 'eval "$(starship init zsh)"' >> ~/.zshrc
+```
+
+**Benefits:**
+- ✓ Fast and minimal
+- ✓ Shows git status, language versions, etc.
+- ✓ Cross-shell compatible
+- ✓ Highly configurable
+
+### Essential Shell Aliases
+
+Add to your `~/.zshrc`:
+
+```bash
+# Navigation
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ~='cd ~'
+
+# Modern tool replacements (if installed)
+alias ls='eza --icons'
+alias ll='eza -l --icons'
+alias la='eza -la --icons'
+alias cat='bat'
+
+# Git shortcuts (if not using oh-my-zsh git plugin)
+alias gs='git status'
+alias ga='git add'
+alias gc='git commit'
+alias gp='git push'
+alias gl='git log --oneline --graph --decorate'
+
+# macOS specific
+alias showfiles='defaults write com.apple.finder AppleShowAllFiles YES; killall Finder'
+alias hidefiles='defaults write com.apple.finder AppleShowAllFiles NO; killall Finder'
+alias cleanup="find . -type f -name '*.DS_Store' -ls -delete"
+
+# Homebrew
+alias brewup='brew update && brew upgrade && brew cleanup'
+```
+
+### Path Configuration
+
+If using envsetup's user-local Homebrew:
+
+```bash
+# In ~/.zshrc
+source ~/bin/brew-source.sh
+
+# Add user bin to PATH if not already there
+export PATH="$HOME/bin:$PATH"
+```
+
+### Shell Performance
+
+**Measure startup time:**
+```bash
+time zsh -i -c exit
+```
+
+**If slow (>1s), diagnose:**
+```bash
+# Add to beginning of ~/.zshrc temporarily
+zmodload zsh/zprof
+
+# Add to end of ~/.zshrc temporarily
+zprof
+
+# Then open new terminal and review output
+```
+
+### Tab Completion
+
+**Enable advanced completion:**
+```bash
+# Usually already in ~/.zshrc, but verify:
+autoload -Uz compinit && compinit
+```
+
+**Case-insensitive completion:**
+```bash
+# Add to ~/.zshrc
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
+```
+
+---
+
+## Security Best Practices
+
+Keeping your Mac secure without sacrificing usability:
+
+### FileVault (Disk Encryption)
+
+**Enable FileVault:**
+```bash
+# System Preferences → Security & Privacy → FileVault → Turn On FileVault
+
+# Or via command line (requires restart):
+sudo fdesetup enable
+```
+
+**Verification:**
+```bash
+fdesetup status
+# Should output: FileVault is On
+```
+
+**Important:**
+- ✓ Protects data if Mac is lost or stolen
+- ✓ Required for some corporate policies
+- ⚠ Save recovery key in secure location
+- ⚠ Slight performance impact (usually negligible on modern Macs)
+
+### Firewall
+
+**Enable Firewall:**
+```bash
+# System Preferences → Security & Privacy → Firewall → Turn On Firewall
+
+# Or via command line:
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setglobalstate on
+```
+
+**Firewall Options:**
+```bash
+# Enable stealth mode (don't respond to ping):
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setstealthmode on
+
+# Block all incoming connections (strict):
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --setblockall on
+```
+
+### Gatekeeper
+
+Gatekeeper prevents unknown applications from running:
+
+**Status Check:**
+```bash
+spctl --status
+# Should output: assessments enabled
+```
+
+**Allowing Apps from Identified Developers:**
+- System Preferences → Security & Privacy → General
+- "Allow apps downloaded from: App Store and identified developers"
+
+**Running Unsigned Apps (Use Caution):**
+```bash
+# Right-click app → Open (first time only)
+# Or temporarily disable (not recommended):
+sudo spctl --master-disable
+```
+
+### SSH Key Management
+
+**Generate SSH Keys:**
+```bash
+# Ed25519 (recommended, modern)
+ssh-keygen -t ed25519 -C "your.email@example.com"
+
+# RSA (if Ed25519 not supported)
+ssh-keygen -t rsa -b 4096 -C "your.email@example.com"
+```
+
+**Add to SSH Agent:**
+```bash
+# Start agent
+eval "$(ssh-agent -s)"
+
+# Add key to agent and macOS keychain
+ssh-add --apple-use-keychain ~/.ssh/id_ed25519
+
+# Configure SSH to use keychain (add to ~/.ssh/config)
+cat >> ~/.ssh/config << EOF
+Host *
+  AddKeysToAgent yes
+  UseKeychain yes
+  IdentityFile ~/.ssh/id_ed25519
+EOF
+```
+
+### Password Management
+
+**Use a Password Manager:**
+- ✓ 1Password (commercial, highly rated)
+- ✓ Bitwarden (open source, freemium)
+- ✓ iCloud Keychain (built-in, basic)
+
+**Enable Two-Factor Authentication:**
+- Enable 2FA on Apple ID
+- Enable 2FA on all critical services (GitHub, email, etc.)
+
+### Privacy Settings
+
+**Review Privacy Settings:**
+```bash
+# System Preferences → Security & Privacy → Privacy
+```
+
+**Recommended:**
+- ✓ Review Location Services permissions
+- ✓ Review Contacts, Calendar, Photos access
+- ✓ Disable analytics if desired
+- ✓ Review Full Disk Access carefully
+
+### System Integrity Protection (SIP)
+
+SIP is enabled by default. **Leave it enabled** unless you have specific needs.
+
+**Check Status:**
+```bash
+csrutil status
+# Should output: System Integrity Protection status: enabled
+```
+
+### Software Updates
+
+**Enable Automatic Updates:**
+```bash
+# System Preferences → Software Update → Advanced
+# Check: Install macOS updates, Install app updates, Install system data files and security updates
+```
+
+**Manual Check:**
+```bash
+softwareupdate --list
+sudo softwareupdate --install --all
+```
+
+---
+
+## Performance Optimization
+
+Keeping your Mac responsive and efficient:
+
+### Reduce Visual Effects
+
+**Disable Animations:**
+```bash
+# Reduce motion
+defaults write com.apple.universalaccess reduceMotion -bool true
+
+# Reduce transparency
+defaults write com.apple.universalaccess reduceTransparency -bool true
+
+# Faster window animations
+defaults write NSGlobalDomain NSWindowResizeTime -float 0.001
+
+# Disable window animations
+defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false
+
+# Restart Dock to apply
+killall Dock
+```
+
+**Revert if Needed:**
+```bash
+defaults delete com.apple.universalaccess reduceMotion
+defaults delete com.apple.universalaccess reduceTransparency
+defaults delete NSGlobalDomain NSWindowResizeTime
+defaults delete NSGlobalDomain NSAutomaticWindowAnimationsEnabled
+killall Dock
+```
+
+### Dock Optimization
+
+**Faster Dock:**
+```bash
+# Remove dock show/hide delay
+defaults write com.apple.dock autohide-delay -float 0
+defaults write com.apple.dock autohide-time-modifier -float 0.5
+
+# Restart Dock
+killall Dock
+```
+
+**Minimize to Application Icon:**
+```bash
+defaults write com.apple.dock minimize-to-application -bool true
+killall Dock
+```
+
+### Spotlight Optimization
+
+**Exclude Folders from Spotlight:**
+```bash
+# System Preferences → Spotlight → Privacy
+# Add folders like ~/Downloads, node_modules, etc.
+```
+
+**Rebuild Spotlight Index (if search is slow):**
+```bash
+sudo mdutil -E /
+```
+
+### Login Items
+
+**Reduce Startup Items:**
+```bash
+# System Preferences → Users & Groups → Login Items
+# Remove unnecessary startup applications
+```
+
+### Storage Optimization
+
+**Check Storage:**
+```bash
+# About This Mac → Storage → Manage
+```
+
+**Clean System:**
+```bash
+# Clear caches (careful!)
+rm -rf ~/Library/Caches/*
+
+# Empty trash
+rm -rf ~/.Trash/*
+
+# Homebrew cleanup (if using Homebrew)
+brew cleanup --prune=all
+
+# Remove old iOS backups
+rm -rf ~/Library/Application\ Support/MobileSync/Backup/*
+```
+
+**Additional Cleanup:**
+- Remove old Xcode versions/simulators (if applicable)
+- Clear Downloads folder
+- Remove large files you don't need (use Disk Inventory X or DaisyDisk)
+
+### Activity Monitor
+
+**Monitor Resource Usage:**
+```bash
+# Built-in tool: Applications → Utilities → Activity Monitor
+# Or command line:
+top
+```
+
+**Common Resource Hogs:**
+- Chrome/browser with many tabs
+- Docker Desktop when idle
+- Electron apps (Slack, Discord, etc.)
+- Spotlight indexing
+- Time Machine backups during operation
+
+### Restart Regularly
+
+**Recommended:**
+- Restart weekly for optimal performance
+- Updates often require restart
+- Clears memory leaks and temporary issues
+
+---
+
+## Backup Strategy
+
+Protect your data with a comprehensive backup strategy:
+
+### Time Machine (Local Backups)
+
+**Setup:**
+1. Connect external drive (1TB+ recommended)
+2. System Preferences → Time Machine
+3. Select Backup Disk
+4. Enable automatic backups
+
+**Best Practices:**
+- ✓ Use encrypted backup disk
+- ✓ Keep backup drive unplugged when not backing up (protection from malware/accidents)
+- ✓ Replace backup drives every 3-5 years
+- ⚠ Time Machine is not bootable on Apple Silicon Macs
+
+**Exclude Unnecessary Folders:**
+```bash
+# System Preferences → Time Machine → Options → Exclude These Items
+```
+
+Common exclusions:
+- `~/Downloads`
+- `~/.Trash`
+- `~/Library/Caches`
+- `node_modules` directories
+- Virtual machine images
+
+### Cloud Backups
+
+**iCloud:**
+- ✓ Built-in, seamless
+- ✓ Documents, Desktop, Photos
+- ⚠ Limited free space (5GB), paid plans available
+
+**Alternative Services:**
+- **Backblaze** (unlimited for ~$7/month)
+- **Arq + Cloud Storage** (S3, B2, etc.)
+- **Dropbox, Google Drive, OneDrive** (for specific folders)
+
+### Version Control for Code
+
+**Git + GitHub/GitLab/Bitbucket:**
+```bash
+# Keep all code in Git repositories
+# Push regularly to remote
+git push origin main
+```
+
+**Benefits:**
+- ✓ Infinite version history
+- ✓ Branch-based experimentation
+- ✓ Collaboration support
+- ✓ Off-site backup
+
+### Configuration Backup
+
+**Dotfiles Repository:**
+```bash
+# Keep your configuration in Git
+mkdir ~/dotfiles
+cd ~/dotfiles
+git init
+
+# Add configurations
+cp ~/.zshrc .
+cp ~/.gitconfig .
+cp ~/.ssh/config ssh_config
+
+git add .
+git commit -m "Initial dotfiles"
+git remote add origin <your-private-repo>
+git push -u origin main
+```
+
+**App Lists (envsetup):**
+```bash
+# Keep your macos-apps.txt and mas-apps.txt in version control
+cd ~/src/envsetup
+git add macos-apps.txt mas-apps.txt
+git commit -m "My app configuration"
+```
+
+### Testing Backups
+
+**Verify Backups Regularly:**
+- Restore a test file from Time Machine
+- Check iCloud sync status
+- Verify cloud backup service is running
+
+**Recovery Testing:**
+- Know how to boot into Recovery Mode (cmd-R)
+- Know how to restore from Time Machine
+- Test restoring a file before you need it
+
+### 3-2-1 Backup Rule
+
+**Best Practice:**
+- **3** copies of your data
+- **2** different media types
+- **1** off-site copy
+
+**Example:**
+1. Original data on Mac
+2. Time Machine backup (external drive)
+3. Cloud backup (Backblaze/iCloud/etc.)
 
 ---
 
