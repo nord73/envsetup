@@ -199,7 +199,30 @@ bash scripts/bootstrap.sh --scenario=docker-host
 
 ## Virtual Machine Support
 
+> **💡 Setting up a Linux development VM?** See **[VM_SETUP.md](VM_SETUP.md)** for a comprehensive guide covering:
+> - VM platform preparation and base OS installation
+> - Multiple setup scenarios (headless, minimal desktop, developer desktop)
+> - Desktop environment options (XFCE, GNOME, KDE, none)
+> - Remote access setup (xRDP, SSH, VS Code Remote, Tailscale)
+> - VM optimization and guest tools installation
+> - Best practices and troubleshooting
+
 The bootstrap script automatically detects when running in a virtual machine and installs the appropriate hypervisor guest agent for optimal performance and integration.
+
+### Quick VM Setup
+
+Use the enhanced VM setup script for quick configuration:
+
+```bash
+# Minimal desktop with XFCE
+bash vm/setup-dev-vm.sh --scenario=minimal-desktop --desktop=xfce
+
+# Full developer environment
+bash vm/setup-dev-vm.sh --scenario=developer-desktop --desktop=xfce --docker --vscode
+
+# Headless remote development server
+bash vm/setup-dev-vm.sh --scenario=remote-dev --docker --vscode
+```
 
 ### Supported Hypervisors
 

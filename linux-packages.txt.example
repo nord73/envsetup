@@ -1,47 +1,132 @@
 # Linux Packages to install via system package manager
 # One package per line - works with apt (Ubuntu/Debian) and dnf (Fedora)
 #
-# Common Development Tools:
-# neovim
-# emacs
-# vim-gtk3
-# code  # VS Code (requires Microsoft repository)
-# nodejs
-# npm
-# python3-pip
-# golang
+# === Editors ===
+# neovim              # Modern Vim fork with better defaults
+# vim-gtk3            # Vim with clipboard support
+# emacs               # GNU Emacs editor
+# code                # VS Code (requires Microsoft repository)
+# sublime-text        # Sublime Text (requires repository)
 #
-# System Tools:
-# terminator
-# tilix
-# yakuake
-# tmuxinator
-# zoxide
-# fd-find
-# exa
+# === Development Tools ===
+# build-essential     # GCC, make, and development libraries (Debian/Ubuntu)
+# git                 # Version control (usually pre-installed)
+# git-lfs             # Git Large File Storage
+# tig                 # Text-mode interface for Git
+# lazygit             # Terminal UI for Git
+# gh                  # GitHub CLI
+# nodejs              # Node.js JavaScript runtime
+# npm                 # Node package manager
+# python3-pip         # Python package installer
+# python3-venv        # Python virtual environments
+# golang              # Go programming language
+# rust-all            # Rust toolchain (Debian/Ubuntu)
+# cargo               # Rust package manager
 #
-# Productivity:
-# flameshot
-# redshift
-# redshift-gtk
-# gnome-tweaks
-# dconf-editor
+# === Modern CLI Tools ===
+# fzf                 # Fuzzy finder
+# ripgrep             # Fast grep alternative (rg)
+# fd-find             # Fast find alternative (fd)
+# bat                 # Cat with syntax highlighting
+# exa                 # Modern ls replacement
+# zoxide              # Smarter cd command
+# tldr                # Simplified man pages
+# httpie              # User-friendly curl alternative
+# jq                  # JSON processor
+# yq                  # YAML processor
 #
-# Media:
-# vlc
-# mpv
-# gimp
-# inkscape
+# === Terminal Emulators ===
+# terminator          # Advanced terminal with split panes
+# tilix               # Tiling terminal emulator
+# alacritty           # GPU-accelerated terminal
+# kitty               # Fast, feature-rich terminal
 #
-# Browsers (may require additional repositories):
-# firefox
-# chromium-browser
-# brave-browser
+# === System Tools ===
+# htop                # Interactive process viewer
+# btop                # Modern resource monitor
+# ncdu                # Disk usage analyzer
+# tmux                # Terminal multiplexer
+# tmuxinator          # Tmux session manager
+# zsh                 # Z shell
+# fish                # Friendly interactive shell
+# stow                # Dotfile management
+# xclip               # Clipboard access from terminal
+# tree                # Directory tree viewer
+# curl                # Data transfer tool
+# wget                # File downloader
+# net-tools           # Network utilities (ifconfig, etc.)
+# openssh-server      # SSH server
 #
-# Communication:
-# thunderbird
-# telegram-desktop
-# discord
+# === Productivity ===
+# flameshot           # Screenshot tool
+# redshift            # Screen color temperature adjuster
+# redshift-gtk        # Redshift GUI
+# gnome-tweaks        # GNOME customization
+# dconf-editor        # Configuration editor
+#
+# === Fonts ===
+# fonts-firacode      # Fira Code programming font
+# fonts-jetbrains-mono # JetBrains Mono font
+# fonts-cascadia-code # Cascadia Code font
+# fonts-noto          # Noto fonts
+# fonts-dejavu        # DejaVu fonts
+#
+# === Media ===
+# vlc                 # VLC media player
+# mpv                 # Minimalist media player
+# gimp                # Image editor
+# inkscape            # Vector graphics editor
+# ffmpeg              # Video/audio converter
+# imagemagick         # Image manipulation
+#
+# === Browsers ===
+# firefox             # Mozilla Firefox
+# chromium-browser    # Chromium web browser
+# brave-browser       # Brave (requires repository)
+# google-chrome-stable # Chrome (requires Google repository)
+#
+# === Communication ===
+# thunderbird         # Email client
+# telegram-desktop    # Telegram messaging
+# discord             # Discord (requires repository or Flatpak)
+# slack-desktop       # Slack (requires repository or Flatpak)
+#
+# === Database Tools ===
+# postgresql-client   # PostgreSQL client
+# mysql-client        # MySQL client
+# sqlite3             # SQLite database
+# redis-tools         # Redis CLI tools
+#
+# === Container & VM Tools ===
+# docker.io           # Docker (basic, consider Docker CE for latest)
+# docker-compose      # Docker Compose (v1)
+# podman              # Daemonless container engine
+# buildah             # Container image builder
+# qemu-kvm            # KVM virtualization
+# virt-manager        # Virtual machine manager
+#
+# === Network Tools ===
+# nmap                # Network scanner
+# traceroute          # Network route tracer
+# mtr                 # Network diagnostic tool
+# wireshark           # Network analyzer
+# tcpdump             # Packet analyzer
+# netcat              # Networking utility
+#
+# === Security ===
+# ufw                 # Uncomplicated Firewall
+# fail2ban            # Intrusion prevention
+# clamav              # Antivirus
+# gnupg               # Encryption tool
+# pass                # Password manager (CLI)
+#
+# === Misc ===
+# neofetch            # System information
+# screenfetch         # System information (alternative)
+# fortune             # Random quotes
+# cowsay              # ASCII art
+# figlet              # ASCII art text
+# sl                  # Fun train animation
 #
 # Note: Some packages may have different names on different distributions
 # The script will attempt to install packages that are available in your repos
