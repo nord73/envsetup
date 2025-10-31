@@ -179,6 +179,20 @@ Best for: Production deployments, minimal attack surface
 bash scripts/bootstrap.sh --scenario=production-server
 ```
 
+### Server
+Best for: General-purpose servers, operational/admin servers with monitoring tools
+
+**Includes:**
+- Base packages: `tmux`, `git`, `curl`, `wget`, `jq`
+- Monitoring tools: `tree`, `htop`
+
+**Usage:**
+```bash
+bash scripts/bootstrap.sh --scenario=server
+```
+
+**Note:** This scenario provides a middle ground between `production-server` (minimal) and `development-server` (full dev tools), including essential operational tools for system monitoring and debugging without the full development suite.
+
 ### Docker Host
 Best for: Dedicated Docker container hosts, container orchestration servers
 
