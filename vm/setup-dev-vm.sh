@@ -231,7 +231,8 @@ if [ "$SCENARIO" = "developer-desktop" ] || [ "$SCENARIO" = "remote-dev" ]; then
   # Node.js via nvm
   if [ ! -d "$HOME/.nvm" ]; then
     echo "Installing nvm (Node Version Manager)..."
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+    NVM_VERSION="v0.40.1"  # Use specific version for reproducibility
+    curl -o- "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash
     export NVM_DIR="$HOME/.nvm"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
   fi
@@ -244,12 +245,17 @@ if [ "$INSTALL_VSCODE" = true ]; then
   # Install dependencies
   sudo apt install -y gnome-keyring
   
-  # Download and install VS Code
+  # Download and install VS Code via official Microsoft repository (more secure)
   if ! command -v code >/dev/null 2>&1; then
-    wget -O /tmp/vscode.deb "https://go.microsoft.com/fwlink/?LinkID=760868"
-    echo "code code/add-microsoft-repo boolean true" | sudo debconf-set-selections
-    sudo dpkg -i /tmp/vscode.deb || sudo apt-get install -f -y
-    rm /tmp/vscode.deb
+    echo "Adding Microsoft repository..."
+    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /tmp/packages.microsoft.gpg
+    sudo install -D -o root -g root -m 644 /tmp/packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
+    sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
+    rm -f /tmp/packages.microsoft.gpg
+    
+    echo "Installing VS Code from Microsoft repository..."
+    sudo apt update
+    sudo apt install -y code
     echo "VS Code installed successfully."
   else
     echo "VS Code already installed."
@@ -298,7 +304,11 @@ fi
 if [ "$INSTALL_TAILSCALE" = true ]; then
   echo "==> Installing Tailscale..."
   if ! command -v tailscale >/dev/null 2>&1; then
-    curl -fsSL https://tailscale.com/install.sh | sh
+    echo "Adding Tailscale repository..."
+    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+    sudo apt update
+    sudo apt install -y tailscale
     echo ""
     echo "Tailscale installed. Run 'sudo tailscale up --ssh' to connect to your network."
     echo ""

@@ -523,15 +523,15 @@ rectangle
 
 **Alternatives:** Rectangle Pro (paid), Magnet (paid), BetterSnapTool (paid)
 
-**Fig** (Terminal Autocomplete)
+**Wezterm** (Modern Terminal)
 ```bash
 # Add to macos-apps.txt
-fig
+wezterm
 ```
-- ✓ IDE-style autocomplete for terminal
-- ✓ Works with any shell
-- ✓ Command documentation inline
-- ⚠ Now owned by AWS (uncertainty about future)
+- ✓ GPU-accelerated
+- ✓ Highly configurable via Lua
+- ✓ Built-in multiplexing
+- ✓ Cross-platform
 
 ### Development Tools
 

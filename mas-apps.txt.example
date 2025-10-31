@@ -18,18 +18,13 @@
 # === Communication ===
 # 803453959   # Slack - Team messaging (also available via Homebrew)
 # 1482454543  # Twitter - Social media client
+# 1147396723  # WhatsApp Desktop
 #
 # === Utilities ===
-# 441258766   # Magnet - Window manager
 # 425424353   # The Unarchiver - Archive extraction
-# 1295203466  # Microsoft Remote Desktop
 # 409203825   # Numbers - Apple spreadsheet app
 # 409201541   # Pages - Apple word processor
 # 409183694   # Keynote - Apple presentation app
-#
-# === Media ===
-# 1482454543  # Twitter
-# 1147396723  # WhatsApp Desktop
 #
 # Note: You must be signed in to the Mac App Store for installations to work
 # Sign in with: mas signin your@email.com
