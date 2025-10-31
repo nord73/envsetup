@@ -489,7 +489,7 @@ arc
 - ✓ Vertical tabs, spaces for organization
 - ✓ Built-in ad blocker, split view
 - ✓ Native macOS design
-- ⚠ Invitation or waitlist may be required
+- ✓ Free to use
 
 **Brave** (Privacy-Focused)
 ```bash

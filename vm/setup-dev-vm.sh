@@ -305,8 +305,17 @@ if [ "$INSTALL_TAILSCALE" = true ]; then
   echo "==> Installing Tailscale..."
   if ! command -v tailscale >/dev/null 2>&1; then
     echo "Adding Tailscale repository..."
-    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
+    
+    # Detect distribution codename
+    if [ -f /etc/os-release ]; then
+      . /etc/os-release
+      DISTRO_CODENAME="${VERSION_CODENAME:-jammy}"
+    else
+      DISTRO_CODENAME="jammy"
+    fi
+    
+    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/${DISTRO_CODENAME}.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/${DISTRO_CODENAME}.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list
     sudo apt update
     sudo apt install -y tailscale
     echo ""
