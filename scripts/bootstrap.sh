@@ -531,8 +531,52 @@ install_bin_tool() {
   echo "Installing marcosnils/bin..."
   mkdir -p "$HOME/bin"
   
+  # Detect OS and architecture
+  local os_type arch_type binary_name
+  
+  case "$(uname -s)" in
+    Darwin*)
+      os_type="darwin"
+      ;;
+    Linux*)
+      os_type="linux"
+      ;;
+    *)
+      echo "Warning: Unsupported OS for bin installation. Please install manually from https://github.com/marcosnils/bin"
+      return 1
+      ;;
+  esac
+  
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch_type="amd64"
+      ;;
+    arm64|aarch64)
+      arch_type="arm64"
+      ;;
+    *)
+      echo "Warning: Unsupported architecture for bin installation. Please install manually from https://github.com/marcosnils/bin"
+      return 1
+      ;;
+  esac
+  
+  # Get latest release version by following the redirect from /releases/latest
+  local latest_version
+  latest_version=$(curl -sI https://github.com/marcosnils/bin/releases/latest 2>&1 | grep -i "^location:" | sed 's|.*/tag/||' | tr -d '\r\n')
+  
+  if [ -z "$latest_version" ]; then
+    echo "Warning: Failed to get latest bin version. Please install manually from https://github.com/marcosnils/bin"
+    return 1
+  fi
+  
+  binary_name="bin_${latest_version#v}_${os_type}_${arch_type}"
+  local download_url="https://github.com/marcosnils/bin/releases/download/${latest_version}/${binary_name}"
+  
+  echo "Downloading bin ${latest_version} for ${os_type}_${arch_type}..."
+  
   # Download and install bin
-  if curl -sSL https://raw.githubusercontent.com/marcosnils/bin/master/install.sh | bash -s -- -d "$HOME/bin"; then
+  if curl -sSL "$download_url" -o "$HOME/bin/bin"; then
+    chmod +x "$HOME/bin/bin"
     echo "bin installed successfully to ~/bin/"
     echo "Make sure ~/bin is in your PATH"
     
