@@ -339,7 +339,11 @@ install_macos_apps() {
     return 0
   fi
   
+  # Create user-local Applications directory
+  mkdir -p "$HOME/Applications"
+  
   echo "Installing macOS applications from $apps_file..."
+  echo "Applications will be installed to ~/Applications (user-local, no sudo required)"
   
   while IFS= read -r app || [ -n "$app" ]; do
     # Skip empty lines and comments
@@ -349,7 +353,7 @@ install_macos_apps() {
     app=$(echo "$app" | sed 's/#.*//' | xargs)
     
     echo "Installing $app via Homebrew Cask..."
-    if brew install --cask "$app" 2>/dev/null; then
+    if brew install --cask --appdir="$HOME/Applications" "$app" 2>/dev/null; then
       echo "✓ $app installed successfully."
     else
       echo "⚠ Failed to install $app (may already be installed or not found)."
@@ -357,6 +361,7 @@ install_macos_apps() {
   done < "$apps_file"
   
   echo "macOS app installation complete."
+  echo "Note: Applications are installed to ~/Applications"
 }
 
 # Function to install macOS App Store applications via mas
