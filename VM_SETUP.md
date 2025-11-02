@@ -92,7 +92,7 @@ bash vm/setup-dev-vm.sh --scenario=developer-desktop --desktop=xfce
 - All base and development tools
 - Desktop environment (XFCE, GNOME, or KDE)
 - VS Code
-- Docker Desktop
+- Docker CE
 - Development fonts
 - Browser (Firefox)
 - xRDP for remote access
