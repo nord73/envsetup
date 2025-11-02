@@ -367,7 +367,8 @@ install_macos_apps() {
       app_info=$(brew info --cask "$app" 2>/dev/null)
       
       # Check if app is already installed to ~/Applications
-      if echo "$app_info" | grep -q "$HOME/Applications"; then
+      # Check for both expanded path ($HOME/Applications) and tilde notation (~/Applications)
+      if echo "$app_info" | grep -qE "($HOME/Applications|~/Applications)"; then
         echo "$app is already installed to ~/Applications. Skipping reinstall."
         echo "✓ $app is up to date in ~/Applications."
       else
