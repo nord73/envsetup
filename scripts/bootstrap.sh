@@ -360,8 +360,8 @@ install_macos_apps() {
     echo "Installing $app via Homebrew Cask..."
     
     # Check if app is already installed
-    if brew list --cask "$app" &>/dev/null; then
-      echo "  $app is already installed, reinstalling to ~/Applications..."
+    if brew list --cask "$app" >/dev/null 2>&1; then
+      echo "$app is already installed, reinstalling to ~/Applications..."
       if brew reinstall --cask --appdir="$HOME/Applications" "$app"; then
         echo "✓ $app reinstalled successfully to ~/Applications."
       else
