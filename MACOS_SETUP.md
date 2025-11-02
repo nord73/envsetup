@@ -438,7 +438,7 @@ Follow this order for the cleanest setup:
 3. ✅ Run with `--apps` and/or `--mas` flags
 4. ✅ Sign into Mac App Store if using `mas`
 
-**Note:** If applications are already installed (e.g., in `/Applications`), the script will automatically reinstall them to `~/Applications` to ensure they're in the user-local directory. This ensures all your applications are in one location and don't require sudo for management.
+**Note:** If applications are already installed (e.g., in `/Applications`), they will be skipped to avoid requiring sudo during the bootstrap process. This ensures a completely automated, sudo-free installation experience. To move existing apps to `~/Applications`, first uninstall them with `brew uninstall --cask <app>` and then re-run the bootstrap script.
 
 ### Phase 5: Additional Configuration
 1. ✅ Configure installed applications

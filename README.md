@@ -388,7 +388,7 @@ EOF
 bash scripts/bootstrap.sh --apps
 ```
 
-**Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access. You can still launch them from Spotlight, Launchpad, or directly from `~/Applications`. If applications are already installed elsewhere (e.g., in `/Applications`), they will be automatically reinstalled to `~/Applications` to ensure consistent user-local management.
+**Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access. You can still launch them from Spotlight, Launchpad, or directly from `~/Applications`. If applications are already installed elsewhere (e.g., in `/Applications`), they will be skipped to avoid requiring sudo during the bootstrap process. To move existing apps to `~/Applications`, first uninstall them with `brew uninstall --cask <app>` and then re-run the bootstrap script.
 
 #### Mac App Store Applications
 
