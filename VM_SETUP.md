@@ -292,7 +292,19 @@ Tailscale provides secure, encrypted access to your VM from anywhere.
 
 **Included in:** Developer Desktop scenario (optional)
 
-**Setup:**
+**Setup Option 1 - Using bootstrap.sh (Recommended):**
+```bash
+# Install via bootstrap script
+bash scripts/bootstrap.sh --tailscale
+
+# Connect to your Tailscale network
+sudo tailscale up --ssh
+
+# Get VM's Tailscale IP
+tailscale ip -4
+```
+
+**Setup Option 2 - Direct Installation:**
 ```bash
 # Install Tailscale
 curl -fsSL https://tailscale.com/install.sh | sh
