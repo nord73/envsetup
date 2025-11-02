@@ -388,7 +388,28 @@ EOF
 bash scripts/bootstrap.sh --apps
 ```
 
-**Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access. You can still launch them from Spotlight, Launchpad, or directly from `~/Applications`. If applications are already installed elsewhere (e.g., in `/Applications`), they will be skipped to avoid requiring sudo during the bootstrap process. To move existing apps to `~/Applications`, first uninstall them with `brew uninstall --cask <app>` and then re-run the bootstrap script.
+**Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access during installation. You can still launch them from Spotlight, Launchpad, or directly from `~/Applications`. 
+
+**Uninstalling Applications:**
+
+Some applications (like Visual Studio Code) install LaunchAgents or other system components that may cause Homebrew to request sudo access during uninstallation. To avoid this:
+
+```bash
+# Use the provided uninstall helper script (sudo-free)
+~/bin/uninstall-app.sh visual-studio-code
+
+# Or manually uninstall:
+# 1. Stop any LaunchAgents
+launchctl unload ~/Library/LaunchAgents/com.microsoft.VSCode.ShipIt.plist 2>/dev/null || true
+
+# 2. Remove the app
+rm -rf ~/Applications/Visual\ Studio\ Code.app
+
+# 3. Clean up Homebrew tracking
+brew uninstall --cask --force visual-studio-code
+```
+
+The `uninstall-app.sh` helper script is automatically created when you install apps and handles these steps for you.
 
 #### Mac App Store Applications
 
