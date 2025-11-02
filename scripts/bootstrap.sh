@@ -253,26 +253,18 @@ ensure_xcode_ready() {
   
   if [ $license_status -eq 1 ]; then
     echo ""
-    echo "=========================================="
-    echo "⚠️  Xcode License Not Accepted"
-    echo "=========================================="
+    echo "⚠️  Xcode license has not been accepted. Accepting it now..."
     echo ""
-    echo "The Xcode license agreement has not been accepted."
-    echo "This will cause package installations to fail."
-    echo ""
-    echo "To accept the license, run:"
-    echo "  sudo xcodebuild -license accept"
-    echo ""
-    echo "Or run without sudo to read the license first:"
-    echo "  sudo xcodebuild -license"
-    echo ""
-    echo "After accepting the license, run this script again."
-    echo "=========================================="
-    echo ""
-    exit 1
+    if sudo xcodebuild -license accept; then
+      echo "✓ Xcode license accepted successfully"
+    else
+      echo "Error: Failed to accept Xcode license. Please run manually:"
+      echo "  sudo xcodebuild -license accept"
+      exit 1
+    fi
+  else
+    echo "✓ Xcode license has been accepted"
   fi
-  
-  echo "✓ Xcode license has been accepted"
   return 0
 }
 
