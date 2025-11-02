@@ -345,8 +345,8 @@ install_macos_apps() {
     # Skip empty lines and comments
     [[ -z "$app" || "$app" =~ ^[[:space:]]*# ]] && continue
     
-    # Trim whitespace
-    app=$(echo "$app" | xargs)
+    # Strip inline comments and trim whitespace
+    app=$(echo "$app" | sed 's/#.*//' | xargs)
     
     echo "Installing $app via Homebrew Cask..."
     if brew install --cask "$app" 2>/dev/null; then
@@ -436,8 +436,8 @@ install_linux_packages() {
     # Skip empty lines and comments
     [[ -z "$package" || "$package" =~ ^[[:space:]]*# ]] && continue
     
-    # Trim whitespace
-    package=$(echo "$package" | xargs)
+    # Strip inline comments and trim whitespace
+    package=$(echo "$package" | sed 's/#.*//' | xargs)
     
     echo "Installing $package via $pkg_manager..."
     case "$pkg_manager" in
@@ -516,8 +516,8 @@ install_flatpak_apps() {
     # Skip empty lines and comments
     [[ -z "$app_id" || "$app_id" =~ ^[[:space:]]*# ]] && continue
     
-    # Trim whitespace
-    app_id=$(echo "$app_id" | xargs)
+    # Strip inline comments and trim whitespace
+    app_id=$(echo "$app_id" | sed 's/#.*//' | xargs)
     
     echo "Installing Flatpak app: $app_id..."
     if flatpak install -y flathub "$app_id" 2>/dev/null; then
