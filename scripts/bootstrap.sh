@@ -585,16 +585,48 @@ install_tailscale_linux() {
       echo "Adding Tailscale repository..."
       
       # Detect distribution codename
+      local DISTRO_CODENAME
       if [ -f /etc/os-release ]; then
         . /etc/os-release
-        DISTRO_CODENAME="${VERSION_CODENAME:-jammy}"
-      else
-        DISTRO_CODENAME="jammy"
+        DISTRO_CODENAME="${VERSION_CODENAME}"
       fi
       
-      # Add Tailscale's GPG key and repository
-      curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/${DISTRO_CODENAME}.noarmor.gpg | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-      curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/${DISTRO_CODENAME}.tailscale-keyring.list | sudo tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+      # If we still don't have a codename, try lsb_release
+      if [ -z "$DISTRO_CODENAME" ] && command -v lsb_release >/dev/null 2>&1; then
+        DISTRO_CODENAME=$(lsb_release -cs)
+      fi
+      
+      # Last resort: use OS_VERSION_CODENAME from os_detection.sh
+      if [ -z "$DISTRO_CODENAME" ]; then
+        DISTRO_CODENAME="${OS_VERSION_CODENAME:-jammy}"
+      fi
+      
+      echo "Using distribution codename: $DISTRO_CODENAME"
+      
+      # Add Tailscale's GPG key and repository with error handling
+      if ! curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${DISTRO_CODENAME}.noarmor.gpg" -o /tmp/tailscale-keyring.gpg; then
+        echo "⚠ Failed to download Tailscale GPG key."
+        return 1
+      fi
+      
+      if ! sudo install -m 644 /tmp/tailscale-keyring.gpg /usr/share/keyrings/tailscale-archive-keyring.gpg; then
+        echo "⚠ Failed to install Tailscale GPG key."
+        rm -f /tmp/tailscale-keyring.gpg
+        return 1
+      fi
+      rm -f /tmp/tailscale-keyring.gpg
+      
+      if ! curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${DISTRO_CODENAME}.tailscale-keyring.list" -o /tmp/tailscale.list; then
+        echo "⚠ Failed to download Tailscale repository list."
+        return 1
+      fi
+      
+      if ! sudo install -m 644 /tmp/tailscale.list /etc/apt/sources.list.d/tailscale.list; then
+        echo "⚠ Failed to install Tailscale repository list."
+        rm -f /tmp/tailscale.list
+        return 1
+      fi
+      rm -f /tmp/tailscale.list
       
       sudo apt update
       if sudo apt install -y tailscale; then
@@ -616,8 +648,11 @@ install_tailscale_linux() {
     fedora)
       echo "Adding Tailscale repository..."
       
-      # Add Tailscale's Fedora repository
-      sudo dnf config-manager --add-repo https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+      # Add Tailscale's Fedora repository with error handling
+      if ! sudo dnf config-manager --add-repo https://pkgs.tailscale.com/stable/fedora/tailscale.repo; then
+        echo "⚠ Failed to add Tailscale repository."
+        return 1
+      fi
       
       if sudo dnf install -y tailscale; then
         echo "✓ Tailscale installed successfully."
