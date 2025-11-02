@@ -438,7 +438,19 @@ Follow this order for the cleanest setup:
 3. ✅ Run with `--apps` and/or `--mas` flags
 4. ✅ Sign into Mac App Store if using `mas`
 
-**Note:** If applications are already installed (e.g., in `/Applications`), they will be skipped to avoid requiring sudo during the bootstrap process. This ensures a completely automated, sudo-free installation experience. To move existing apps to `~/Applications`, first uninstall them with `brew uninstall --cask <app>` and then re-run the bootstrap script.
+**Note on Installation:** Applications are installed to `~/Applications` without requiring sudo during installation.
+
+**Note on Uninstallation:** Some applications (like Visual Studio Code, Docker, etc.) install LaunchAgents or other system components. While installation doesn't require sudo, Homebrew's uninstall process may request sudo to remove these components. To avoid this, use the provided uninstall helper script:
+
+```bash
+# Sudo-free uninstallation
+~/bin/uninstall-app.sh visual-studio-code
+
+# Or use standard Homebrew (may request sudo)
+brew uninstall --cask visual-studio-code
+```
+
+The `uninstall-app.sh` helper script is automatically created when you install apps and removes apps and their user-level components without requiring sudo.
 
 ### Phase 5: Additional Configuration
 1. ✅ Configure installed applications

@@ -334,6 +334,125 @@ BREWEOF
   done
 }
 
+# Function to create uninstall helper script for macOS apps
+create_uninstall_helper() {
+  local uninstall_script="$HOME/bin/uninstall-app.sh"
+  
+  cat > "$uninstall_script" << 'UNINSTALLEOF'
+#!/bin/bash
+# uninstall-app.sh
+# Helper script to uninstall macOS apps without sudo
+# This script manually removes apps and their components without requiring sudo
+
+set -e
+
+if [ $# -eq 0 ]; then
+  echo "Usage: $0 <app-name>"
+  echo ""
+  echo "Uninstalls a macOS application installed via Homebrew Cask without requiring sudo."
+  echo ""
+  echo "Examples:"
+  echo "  $0 visual-studio-code"
+  echo "  $0 iterm2"
+  echo "  $0 docker"
+  echo ""
+  echo "This script:"
+  echo "  1. Stops and removes user-level LaunchAgents"
+  echo "  2. Removes the app from ~/Applications"
+  echo "  3. Cleans up Homebrew's tracking database"
+  echo ""
+  echo "Note: This only works for apps installed to ~/Applications"
+  exit 1
+fi
+
+APP_NAME="$1"
+
+echo "Uninstalling $APP_NAME..."
+
+# Get the app display name from Homebrew
+# Try to get it reliably, with fallback to the app name if it fails
+APP_DISPLAY_NAME=""
+if command -v brew >/dev/null 2>&1; then
+  # First try: use brew info to get the cask name
+  APP_DISPLAY_NAME=$(brew info --cask "$APP_NAME" 2>/dev/null | head -1 | awk '{print $1}' | sed 's/://') || true
+fi
+
+if [ -z "$APP_DISPLAY_NAME" ]; then
+  # Fallback: use the provided app name
+  echo "Warning: Could not find app info from Homebrew. Proceeding with manual cleanup..."
+  APP_DISPLAY_NAME="$APP_NAME"
+fi
+
+# Find the .app bundle in ~/Applications
+APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 -name "*${APP_DISPLAY_NAME}*.app" -o -name "*${APP_NAME}*.app" 2>/dev/null | head -1)
+
+if [ -z "$APP_BUNDLE" ]; then
+  echo "Warning: Could not find app bundle in ~/Applications"
+else
+  echo "Found app bundle: $APP_BUNDLE"
+fi
+
+# Stop and remove LaunchAgents associated with the app
+echo "Checking for LaunchAgents..."
+LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
+if [ -d "$LAUNCH_AGENTS_DIR" ]; then
+  # Common LaunchAgent patterns for the app
+  # Properly quote the command substitution to prevent word splitting
+  pattern_without_dash="$(echo "$APP_NAME" | sed 's/-//g')"
+  for pattern in "$APP_NAME" "$APP_DISPLAY_NAME" "$pattern_without_dash"; do
+    # Use nullglob-like behavior by checking if glob matches any files
+    shopt -s nullglob 2>/dev/null || true  # Enable nullglob if available (bash 4+)
+    plist_files=("$LAUNCH_AGENTS_DIR"/*"$pattern"*.plist)
+    shopt -u nullglob 2>/dev/null || true  # Disable nullglob
+    
+    for plist in "${plist_files[@]}"; do
+      # Additional check to ensure the file exists (for bash 3.2 compatibility)
+      if [ -f "$plist" ]; then
+        echo "Found LaunchAgent: $plist"
+        # Try to unload it (may fail if not loaded, which is OK)
+        launchctl unload "$plist" 2>/dev/null || echo "  (LaunchAgent not loaded or already unloaded)"
+        # Remove the plist file
+        rm -f "$plist"
+        echo "  ✓ Removed LaunchAgent"
+      fi
+    done
+  done
+fi
+
+# Remove the app bundle
+if [ -n "$APP_BUNDLE" ] && [ -d "$APP_BUNDLE" ]; then
+  echo "Removing app bundle..."
+  rm -rf "$APP_BUNDLE"
+  echo "✓ Removed $APP_BUNDLE"
+fi
+
+# Clean up Homebrew's tracking
+echo "Cleaning up Homebrew database..."
+if brew list --cask "$APP_NAME" >/dev/null 2>&1; then
+  # Try with --zap first (removes all app data), fall back to without if it fails
+  if ! brew uninstall --cask --force --zap "$APP_NAME" 2>/dev/null; then
+    # --zap might not be supported or might fail, try without it
+    brew uninstall --cask --force "$APP_NAME" 2>/dev/null || {
+      echo "Warning: Homebrew cleanup failed. The app may still be tracked by Homebrew."
+      echo "You can try manually with: brew uninstall --cask --force $APP_NAME"
+    }
+  fi
+fi
+
+echo ""
+echo "=========================================="
+echo "✓ $APP_NAME uninstalled successfully"
+echo "=========================================="
+echo ""
+echo "Note: This script removes the app and user-level components."
+echo "If the app had system-level components (LaunchDaemons, kernel extensions, etc.),"
+echo "those may still remain and would require sudo to remove."
+UNINSTALLEOF
+
+  chmod +x "$uninstall_script"
+  echo "Created uninstall helper script: $uninstall_script"
+}
+
 # Function to install macOS applications via Homebrew Cask
 install_macos_apps() {
   local apps_file="macos-apps.txt"
@@ -346,6 +465,9 @@ install_macos_apps() {
   
   # Create user-local Applications directory
   mkdir -p "$HOME/Applications"
+  
+  # Set Homebrew Cask options for user-local installation
+  export HOMEBREW_CASK_OPTS="--appdir=$HOME/Applications --no-quarantine"
   
   echo "Installing macOS applications from $apps_file..."
   echo "Applications will be installed to ~/Applications (user-local, no sudo required)"
@@ -362,10 +484,10 @@ install_macos_apps() {
     # Check if app is already installed
     if brew list --cask "$app" >/dev/null 2>&1; then
       echo "$app is already installed, skipping to avoid sudo requirement."
-      echo "Note: To move existing apps to ~/Applications, uninstall them first with: brew uninstall --cask \"$app\""
+      echo "Note: To move existing apps to ~/Applications, see uninstall instructions in README"
     else
       # App not installed, install it fresh
-      if brew install --cask --appdir="$HOME/Applications" "$app"; then
+      if brew install --cask "$app"; then
         echo "✓ $app installed successfully."
       else
         echo "⚠ Failed to install $app."
@@ -373,8 +495,18 @@ install_macos_apps() {
     fi
   done < "$apps_file"
   
+  echo ""
+  echo "=========================================="
   echo "macOS app installation complete."
-  echo "Note: Applications are installed to ~/Applications"
+  echo "Applications are installed to ~/Applications"
+  echo ""
+  echo "Note: Some apps may require sudo to uninstall via Homebrew"
+  echo "due to LaunchAgents or other system components."
+  echo "For sudo-free uninstallation, see: ~/bin/uninstall-app.sh"
+  echo "=========================================="
+  
+  # Create uninstall helper script
+  create_uninstall_helper
 }
 
 # Function to install macOS App Store applications via mas
