@@ -363,7 +363,8 @@ install_macos_apps() {
     if brew list --cask "$app" >/dev/null 2>&1; then
       # App is installed, check where it's installed
       # Use brew info to get installation location
-      local app_info=$(brew info --cask "$app" 2>/dev/null)
+      local app_info
+      app_info=$(brew info --cask "$app" 2>/dev/null)
       
       # Check if brew info succeeded and returned valid output
       if [ -z "$app_info" ]; then
@@ -372,9 +373,10 @@ install_macos_apps() {
       fi
       
       # Check if app is already installed to ~/Applications
-      # Use grep -F for fixed string matching to avoid regex escaping issues
+      # Use grep -F for fixed-string matching to avoid regex escaping issues
+      # Look for the artifact path pattern: " -> path/to/app" to avoid false positives
       # Check for both expanded path ($HOME/Applications/) and tilde notation (~/Applications/)
-      if echo "$app_info" | grep -qF "$HOME/Applications/" || echo "$app_info" | grep -qF "~/Applications/"; then
+      if echo "$app_info" | grep -qF -e " -> $HOME/Applications/" -e " -> ~/Applications/"; then
         echo "$app is already installed to ~/Applications. Skipping reinstall."
         echo "✓ $app is up to date in ~/Applications."
       else
