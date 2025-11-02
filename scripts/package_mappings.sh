@@ -1,6 +1,9 @@
 #!/bin/bash
 # scripts/package_mappings.sh
 # Package name mappings for different OS versions
+#
+# NOTE: This script is compatible with Bash 3.2+ (including macOS default Bash)
+# It uses functions with case statements instead of associative arrays
 
 # Source OS detection if not already loaded
 if [ -z "$OS_NAME" ]; then
@@ -9,121 +12,157 @@ if [ -z "$OS_NAME" ]; then
   detect_os
 fi
 
-# Define package mappings for different OS versions
-# Format: declare -A OS_VERSION_PACKAGES=(["package_alias"]="actual_package_name")
+# Package mapping functions using case statements (Bash 3.2 compatible)
+# These replace the associative arrays that require Bash 4+
 
-# Ubuntu package mappings (works for all versions 20.04+, including .10 releases)
-# Most packages have consistent names across Ubuntu versions
-declare -A UBUNTU_PACKAGES=(
-  ["tmux"]="tmux"
-  ["git"]="git"
-  ["curl"]="curl"
-  ["wget"]="wget"
-  ["jq"]="jq"
-  ["tree"]="tree"
-  ["htop"]="htop"
-  ["fzf"]="fzf"
-  ["ripgrep"]="ripgrep"
-  ["bat"]="bat"
-)
+# Get package name for Ubuntu (generic, works for all versions 20.04+)
+_get_ubuntu_package() {
+  local tool="$1"
+  case "$tool" in
+    tmux) echo "tmux" ;;
+    git) echo "git" ;;
+    curl) echo "curl" ;;
+    wget) echo "wget" ;;
+    jq) echo "jq" ;;
+    tree) echo "tree" ;;
+    htop) echo "htop" ;;
+    fzf) echo "fzf" ;;
+    ripgrep) echo "ripgrep" ;;
+    bat) echo "bat" ;;
+    *) echo "" ;;
+  esac
+}
 
-# Ubuntu 20.04 specific packages (override if needed)
-declare -A UBUNTU_20_PACKAGES=(
-  ["tmux"]="tmux"
-  ["git"]="git"
-  ["curl"]="curl"
-  ["wget"]="wget"
-  ["jq"]="jq"
-  ["tree"]="tree"
-  ["htop"]="htop"
-  ["fzf"]="fzf"
-  ["ripgrep"]="ripgrep"
-  ["bat"]="bat"
-)
+# Get package name for Ubuntu 20.04 (same as generic for now)
+_get_ubuntu_20_package() {
+  local tool="$1"
+  _get_ubuntu_package "$tool"
+}
 
-# Debian 11 package mappings (Bullseye has different bat package name)
-declare -A DEBIAN_11_PACKAGES=(
-  ["tmux"]="tmux"
-  ["git"]="git"
-  ["curl"]="curl"
-  ["wget"]="wget"
-  ["jq"]="jq"
-  ["tree"]="tree"
-  ["htop"]="htop"
-  ["fzf"]="fzf"
-  ["ripgrep"]="ripgrep"
-  ["bat"]="batcat"  # Different package name in Debian 11
-)
+# Get package name for Debian 11 (Bullseye has different bat package name)
+_get_debian_11_package() {
+  local tool="$1"
+  case "$tool" in
+    tmux) echo "tmux" ;;
+    git) echo "git" ;;
+    curl) echo "curl" ;;
+    wget) echo "wget" ;;
+    jq) echo "jq" ;;
+    tree) echo "tree" ;;
+    htop) echo "htop" ;;
+    fzf) echo "fzf" ;;
+    ripgrep) echo "ripgrep" ;;
+    bat) echo "batcat" ;;  # Different package name in Debian 11
+    *) echo "" ;;
+  esac
+}
 
-# Debian 12+ package mappings
-declare -A DEBIAN_PACKAGES=(
-  ["tmux"]="tmux"
-  ["git"]="git"
-  ["curl"]="curl"
-  ["wget"]="wget"
-  ["jq"]="jq"
-  ["tree"]="tree"
-  ["htop"]="htop"
-  ["fzf"]="fzf"
-  ["ripgrep"]="ripgrep"
-  ["bat"]="bat"
-)
+# Get package name for Debian 12+ (Bookworm and later)
+_get_debian_package() {
+  local tool="$1"
+  case "$tool" in
+    tmux) echo "tmux" ;;
+    git) echo "git" ;;
+    curl) echo "curl" ;;
+    wget) echo "wget" ;;
+    jq) echo "jq" ;;
+    tree) echo "tree" ;;
+    htop) echo "htop" ;;
+    fzf) echo "fzf" ;;
+    ripgrep) echo "ripgrep" ;;
+    bat) echo "bat" ;;
+    *) echo "" ;;
+  esac
+}
 
-# Fedora package mappings
-declare -A FEDORA_PACKAGES=(
-  ["tmux"]="tmux"
-  ["git"]="git"
-  ["curl"]="curl"
-  ["wget"]="wget"
-  ["jq"]="jq"
-  ["tree"]="tree"
-  ["htop"]="htop"
-  ["fzf"]="fzf"
-  ["ripgrep"]="ripgrep"
-  ["bat"]="bat"
-)
+# Get package name for Fedora
+_get_fedora_package() {
+  local tool="$1"
+  case "$tool" in
+    tmux) echo "tmux" ;;
+    git) echo "git" ;;
+    curl) echo "curl" ;;
+    wget) echo "wget" ;;
+    jq) echo "jq" ;;
+    tree) echo "tree" ;;
+    htop) echo "htop" ;;
+    fzf) echo "fzf" ;;
+    ripgrep) echo "ripgrep" ;;
+    bat) echo "bat" ;;
+    *) echo "" ;;
+  esac
+}
 
-# macOS package mappings (Homebrew)
-declare -A MACOS_PACKAGES=(
-  ["git"]="git"
-  ["curl"]="curl"
-  ["wget"]="wget"
-  ["tree"]="tree"
-  ["htop"]="htop"
-  ["fzf"]="fzf"
-  ["ripgrep"]="ripgrep"
-  ["bat"]="bat"
-  ["jq"]="jq"
-)
+# Get package name for macOS (Homebrew)
+_get_macos_package() {
+  local tool="$1"
+  case "$tool" in
+    git) echo "git" ;;
+    curl) echo "curl" ;;
+    wget) echo "wget" ;;
+    tree) echo "tree" ;;
+    htop) echo "htop" ;;
+    fzf) echo "fzf" ;;
+    ripgrep) echo "ripgrep" ;;
+    bat) echo "bat" ;;
+    jq) echo "jq" ;;
+    *) echo "" ;;
+  esac
+}
 
-# Hypervisor guest agent mappings
-# Format: [hypervisor]="package_name_for_ubuntu debian fedora"
-declare -A HYPERVISOR_AGENTS_UBUNTU=(
-  ["vmware"]="open-vm-tools"
-  ["virtualbox"]="virtualbox-guest-utils"
-  ["hyperv"]="hyperv-daemons"
-  ["kvm"]="qemu-guest-agent"
-  ["qemu"]="qemu-guest-agent"
-  ["xen"]="xen-guest-agent"
-)
+# Get all available tools for a given OS
+_get_available_tools_list() {
+  local os_name="$1"
+  local os_version="$2"
+  
+  case "$os_name" in
+    ubuntu)
+      # All Ubuntu versions support the same tools
+      echo "tmux git curl wget jq tree htop fzf ripgrep bat"
+      ;;
+    debian)
+      # All Debian versions support the same tools
+      echo "tmux git curl wget jq tree htop fzf ripgrep bat"
+      ;;
+    fedora)
+      echo "tmux git curl wget jq tree htop fzf ripgrep bat"
+      ;;
+    macos)
+      echo "git curl wget tree htop fzf ripgrep bat jq"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
 
-declare -A HYPERVISOR_AGENTS_DEBIAN=(
-  ["vmware"]="open-vm-tools"
-  ["virtualbox"]="virtualbox-guest-utils"
-  ["hyperv"]="hyperv-daemons"
-  ["kvm"]="qemu-guest-agent"
-  ["qemu"]="qemu-guest-agent"
-  ["xen"]="xen-guest-agent"
-)
+# Get hypervisor agent package for Ubuntu/Debian
+_get_hypervisor_agent_ubuntu_debian() {
+  local hypervisor="$1"
+  case "$hypervisor" in
+    vmware) echo "open-vm-tools" ;;
+    virtualbox) echo "virtualbox-guest-utils" ;;
+    hyperv) echo "hyperv-daemons" ;;
+    kvm) echo "qemu-guest-agent" ;;
+    qemu) echo "qemu-guest-agent" ;;
+    xen) echo "xen-guest-agent" ;;
+    *) echo "" ;;
+  esac
+}
 
-declare -A HYPERVISOR_AGENTS_FEDORA=(
-  ["vmware"]="open-vm-tools"
-  ["virtualbox"]="virtualbox-guest-additions"
-  ["hyperv"]="hyperv-daemons"
-  ["kvm"]="qemu-guest-agent"
-  ["qemu"]="qemu-guest-agent"
-  ["xen"]="xen-guest-agent"
-)
+# Get hypervisor agent package for Fedora
+_get_hypervisor_agent_fedora() {
+  local hypervisor="$1"
+  case "$hypervisor" in
+    vmware) echo "open-vm-tools" ;;
+    virtualbox) echo "virtualbox-guest-additions" ;;
+    hyperv) echo "hyperv-daemons" ;;
+    kvm) echo "qemu-guest-agent" ;;
+    qemu) echo "qemu-guest-agent" ;;
+    xen) echo "xen-guest-agent" ;;
+    *) echo "" ;;
+  esac
+}
 
 # Get the actual package name for a tool on the current OS
 get_package_name() {
@@ -134,27 +173,27 @@ get_package_name() {
     ubuntu)
       # For Ubuntu 20.x, use specific mappings if available, otherwise use generic
       if [ "$OS_MAJOR_VERSION" = "20" ]; then
-        eval "package_name=\${UBUNTU_20_PACKAGES[\"$tool\"]}"
+        package_name=$(_get_ubuntu_20_package "$tool")
       fi
       # If not found or for other versions, use generic Ubuntu mappings
       if [ -z "$package_name" ]; then
-        eval "package_name=\${UBUNTU_PACKAGES[\"$tool\"]}"
+        package_name=$(_get_ubuntu_package "$tool")
       fi
       ;;
     debian)
       # Debian 11 has special package names
       if [ "$OS_MAJOR_VERSION" = "11" ]; then
-        eval "package_name=\${DEBIAN_11_PACKAGES[\"$tool\"]}"
+        package_name=$(_get_debian_11_package "$tool")
       else
         # Debian 12+ uses generic mappings
-        eval "package_name=\${DEBIAN_PACKAGES[\"$tool\"]}"
+        package_name=$(_get_debian_package "$tool")
       fi
       ;;
     fedora)
-      eval "package_name=\${FEDORA_PACKAGES[\"$tool\"]}"
+      package_name=$(_get_fedora_package "$tool")
       ;;
     macos)
-      eval "package_name=\${MACOS_PACKAGES[\"$tool\"]}"
+      package_name=$(_get_macos_package "$tool")
       ;;
   esac
   
@@ -168,28 +207,7 @@ get_package_name() {
 
 # Get all available tools for the current OS version
 get_available_tools() {
-  case "$OS_NAME" in
-    ubuntu)
-      if [ "$OS_MAJOR_VERSION" = "20" ]; then
-        echo "${!UBUNTU_20_PACKAGES[@]}"
-      else
-        echo "${!UBUNTU_PACKAGES[@]}"
-      fi
-      ;;
-    debian)
-      if [ "$OS_MAJOR_VERSION" = "11" ]; then
-        echo "${!DEBIAN_11_PACKAGES[@]}"
-      else
-        echo "${!DEBIAN_PACKAGES[@]}"
-      fi
-      ;;
-    fedora)
-      echo "${!FEDORA_PACKAGES[@]}"
-      ;;
-    macos)
-      echo "${!MACOS_PACKAGES[@]}"
-      ;;
-  esac
+  _get_available_tools_list "$OS_NAME" "$OS_MAJOR_VERSION"
 }
 
 # Check if a tool is available for the current OS version
@@ -212,14 +230,11 @@ get_hypervisor_agent_package() {
   local package_name=""
   
   case "$OS_NAME" in
-    ubuntu)
-      eval "package_name=\${HYPERVISOR_AGENTS_UBUNTU[\"$hypervisor\"]}"
-      ;;
-    debian)
-      eval "package_name=\${HYPERVISOR_AGENTS_DEBIAN[\"$hypervisor\"]}"
+    ubuntu|debian)
+      package_name=$(_get_hypervisor_agent_ubuntu_debian "$hypervisor")
       ;;
     fedora)
-      eval "package_name=\${HYPERVISOR_AGENTS_FEDORA[\"$hypervisor\"]}"
+      package_name=$(_get_hypervisor_agent_fedora "$hypervisor")
       ;;
   esac
   
