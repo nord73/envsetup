@@ -388,7 +388,7 @@ EOF
 bash scripts/bootstrap.sh --apps
 ```
 
-**Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access. You can still launch them from Spotlight, Launchpad, or directly from `~/Applications`.
+**Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access. You can still launch them from Spotlight, Launchpad, or directly from `~/Applications`. If applications are already installed elsewhere (e.g., in `/Applications`), they will be automatically reinstalled to `~/Applications` to ensure consistent user-local management.
 
 #### Mac App Store Applications
 
