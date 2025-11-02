@@ -1,26 +1,56 @@
 # macOS Applications to install via Homebrew Cask
 # One app per line - use app names from https://formulae.brew.sh/cask/
 #
-# Common Development Tools:
-# iterm2
-# visual-studio-code
-# docker
-# postman
-# sublime-text
+# === Terminal Emulators ===
+# iterm2          # Traditional, highly configurable terminal
+# warp            # Modern AI-enhanced terminal
+# alacritty       # Fast, GPU-accelerated terminal
 #
-# Browsers:
-# firefox
-# google-chrome
-# brave-browser
+# === Development Tools ===
+# visual-studio-code   # Popular code editor
+# docker               # Container platform
+# postman              # API development/testing
+# sublime-text         # Lightweight text editor
+# cursor               # AI-powered code editor
 #
-# Communication:
-# slack
-# discord
-# zoom
+# === Browsers ===
+# arc             # Modern, productivity-focused browser
+# firefox         # Privacy-focused, open source
+# google-chrome   # Most popular browser
+# brave-browser   # Privacy-focused, ad-blocking
 #
-# Productivity:
-# rectangle
-# alfred
-# notion
+# === Productivity Tools ===
+# raycast         # Modern Spotlight replacement (launcher, clipboard, etc.)
+# rectangle       # Window management (free)
+# rectangle-pro   # Advanced window management (paid)
+# notion          # Note-taking and project management
+# obsidian        # Markdown-based note-taking
+# alfred          # Powerful launcher (alternative to Raycast)
+#
+# === Communication ===
+# slack           # Team messaging
+# discord         # Community chat and voice
+# zoom            # Video conferencing
+# microsoft-teams # Enterprise video conferencing
+#
+# === Design & Media ===
+# figma           # Collaborative design tool
+# gimp            # Image editing (open source)
+# vlc             # Media player
+# obs             # Screen recording and streaming
+#
+# === Utilities ===
+# 1password       # Password manager
+# bitwarden       # Open source password manager
+# istat-menus     # System monitoring
+# the-unarchiver  # Archive extraction
+# appcleaner      # Application uninstaller
+#
+# === Development Utilities ===
+# insomnia        # API client (alternative to Postman)
+# tableplus       # Database management
+# dbeaver-community # Universal database tool
+# sourcetree      # Git GUI client
+# github          # GitHub Desktop
 #
 # Uncomment apps you want to install, or add your own

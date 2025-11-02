@@ -68,7 +68,7 @@ for arg in "$@"; do
       echo ""
       echo "Options:"
       echo "  --scenario=<type>  Installation scenario (default: developer-desktop)"
-      echo "                     Options: developer-desktop, clean-desktop, development-server, production-server, docker-host"
+      echo "                     Options: developer-desktop, clean-desktop, development-server, server, production-server, docker-host"
       echo "  --docker           Install Docker CE"
       echo "  --bin              Install marcosnils/bin tool"
       echo "  --apps             Install macOS applications from macos-apps.txt (Homebrew Cask)"
@@ -99,6 +99,9 @@ case "$INSTALL_SCENARIO" in
     ;;
   production-server)
     TOOLS=(${BASE_TOOLS[@]})
+    ;;
+  server)
+    TOOLS=(${BASE_TOOLS[@]} tree htop)
     ;;
   docker-host)
     TOOLS=(${BASE_TOOLS[@]} tree htop)

@@ -179,6 +179,20 @@ Best for: Production deployments, minimal attack surface
 bash scripts/bootstrap.sh --scenario=production-server
 ```
 
+### Server
+Best for: General-purpose servers, operational/admin servers with monitoring tools
+
+**Includes:**
+- Base packages: `tmux`, `git`, `curl`, `wget`, `jq`
+- Monitoring tools: `tree`, `htop`
+
+**Usage:**
+```bash
+bash scripts/bootstrap.sh --scenario=server
+```
+
+**Note:** This scenario provides a middle ground between `production-server` (minimal) and `development-server` (full dev tools), including essential operational tools for system monitoring and debugging without the full development suite.
+
 ### Docker Host
 Best for: Dedicated Docker container hosts, container orchestration servers
 
@@ -199,7 +213,30 @@ bash scripts/bootstrap.sh --scenario=docker-host
 
 ## Virtual Machine Support
 
+> **💡 Setting up a Linux development VM?** See **[VM_SETUP.md](VM_SETUP.md)** for a comprehensive guide covering:
+> - VM platform preparation and base OS installation
+> - Multiple setup scenarios (headless, minimal desktop, developer desktop)
+> - Desktop environment options (XFCE, GNOME, KDE, none)
+> - Remote access setup (xRDP, SSH, VS Code Remote, Tailscale)
+> - VM optimization and guest tools installation
+> - Best practices and troubleshooting
+
 The bootstrap script automatically detects when running in a virtual machine and installs the appropriate hypervisor guest agent for optimal performance and integration.
+
+### Quick VM Setup
+
+Use the enhanced VM setup script for quick configuration:
+
+```bash
+# Minimal desktop with XFCE
+bash vm/setup-dev-vm.sh --scenario=minimal-desktop --desktop=xfce
+
+# Full developer environment
+bash vm/setup-dev-vm.sh --scenario=developer-desktop --desktop=xfce --docker --vscode
+
+# Headless remote development server
+bash vm/setup-dev-vm.sh --scenario=remote-dev --docker --vscode
+```
 
 ### Supported Hypervisors
 
