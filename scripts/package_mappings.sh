@@ -97,6 +97,7 @@ _get_fedora_package() {
 _get_macos_package() {
   local tool="$1"
   case "$tool" in
+    tmux) echo "tmux" ;;
     git) echo "git" ;;
     curl) echo "curl" ;;
     wget) echo "wget" ;;
@@ -128,7 +129,7 @@ _get_available_tools_list() {
       echo "tmux git curl wget jq tree htop fzf ripgrep bat"
       ;;
     macos)
-      echo "git curl wget tree htop fzf ripgrep bat jq"
+      echo "tmux git curl wget tree htop fzf ripgrep bat jq"
       ;;
     *)
       echo ""
