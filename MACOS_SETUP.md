@@ -438,19 +438,31 @@ Follow this order for the cleanest setup:
 3. ✅ Run with `--apps` and/or `--mas` flags
 4. ✅ Sign into Mac App Store if using `mas`
 
-**Note on Installation:** Applications are installed to `~/Applications` without requiring sudo during installation. If an app is already installed in the system `/Applications` directory, the bootstrap script will automatically reinstall it to `~/Applications` to ensure it's in the correct user-local location.
+**Note on Installation:** Applications are installed to `~/Applications` without requiring sudo during installation. If an app is already installed in the system `/Applications` directory, the bootstrap script will automatically:
+1. Remove any LaunchAgents to prevent sudo prompts
+2. Uninstall the app from Homebrew's tracking
+3. Reinstall it to `~/Applications`
 
-**Note on Uninstallation:** Some applications (like Visual Studio Code, Docker, etc.) install LaunchAgents or other system components. While installation doesn't require sudo, Homebrew's uninstall process may request sudo to remove these components. To avoid this, use the provided uninstall helper script:
+**Note on Uninstallation:** Some applications (like Visual Studio Code, Docker, etc.) install LaunchAgents or other system components. The bootstrap script and uninstall helper now handle these automatically without requiring sudo:
 
 ```bash
-# Uninstall apps from either ~/Applications or /Applications
+# Uninstall apps from either ~/Applications or /Applications (no sudo needed)
 ~/bin/uninstall-app.sh visual-studio-code
 
-# Or use standard Homebrew (may request sudo)
+# The script works with various name formats:
+~/bin/uninstall-app.sh visual-studio-code  # Exact cask name
+~/bin/uninstall-app.sh microsoft-visual-studio  # Partial match
+
+# Or use standard Homebrew (will now work without sudo after LaunchAgent cleanup)
 brew uninstall --cask visual-studio-code
 ```
 
-The `uninstall-app.sh` helper script is automatically created when you install apps and removes apps and their user-level components from both `~/Applications` and `/Applications` directories. It attempts to remove apps without requiring sudo, but apps in `/Applications` may require sudo for removal.
+The `uninstall-app.sh` helper script is automatically created when you install apps and:
+- Searches for apps by name (with flexible matching)
+- Removes LaunchAgents automatically (com.microsoft.VSCode.ShipIt, etc.)
+- Removes the app from both `~/Applications` and `/Applications` directories
+- Cleans up Homebrew's tracking database
+- Works without sudo for user-level components (apps in `/Applications` may still require sudo)
 
 ### Phase 5: Additional Configuration
 1. ✅ Configure installed applications

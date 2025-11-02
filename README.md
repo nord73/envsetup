@@ -390,28 +390,35 @@ bash scripts/bootstrap.sh --apps
 
 **Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access during installation. You can still launch them from Spotlight, Launchpad, or directly from `~/Applications`. 
 
-**Existing Apps:** If an app is already installed in the system `/Applications` directory, the bootstrap script will automatically reinstall it to `~/Applications` to ensure it's in the correct user-local location. The old version in `/Applications` should be removed manually if present.
+**Existing Apps:** If an app is already installed in the system `/Applications` directory, the bootstrap script will automatically:
+1. Remove any LaunchAgents that would require sudo during uninstall
+2. Uninstall the app from Homebrew's tracking
+3. Reinstall it to `~/Applications`
+
+The old version in `/Applications` will remain (can be removed manually if desired).
 
 **Uninstalling Applications:**
 
-Some applications (like Visual Studio Code) install LaunchAgents or other system components that may cause Homebrew to request sudo access during uninstallation. To avoid this:
+Some applications (like Visual Studio Code) install LaunchAgents or other system components. The new uninstall process handles these automatically without requiring sudo:
 
 ```bash
-# Use the provided uninstall helper script
+# Use the improved uninstall helper script (no sudo needed)
 ~/bin/uninstall-app.sh visual-studio-code
 
-# Or manually uninstall:
-# 1. Stop any LaunchAgents
-launchctl unload ~/Library/LaunchAgents/com.microsoft.VSCode.ShipIt.plist 2>/dev/null || true
+# The script now supports flexible app name matching:
+~/bin/uninstall-app.sh microsoft-visual-studio  # Partial match works too
 
-# 2. Remove the app (from ~/Applications or /Applications)
-rm -rf ~/Applications/Visual\ Studio\ Code.app
-
-# 3. Clean up Homebrew tracking
-brew uninstall --cask --force visual-studio-code
+# Or use Homebrew directly (now works without sudo after improvements)
+brew uninstall --cask visual-studio-code
 ```
 
-The `uninstall-app.sh` helper script is automatically created when you install apps and handles these steps for you. It works with apps in both `~/Applications` and `/Applications` directories.
+The `uninstall-app.sh` helper script is automatically created when you install apps and:
+- Automatically removes LaunchAgents (com.microsoft.VSCode.ShipIt, etc.) without sudo
+- Searches for apps using flexible name matching (handles "visual-studio-code", "Visual Studio Code", "microsoft-visual-studio", etc.)
+- Works with apps in both `~/Applications` and `/Applications` directories
+- Cleans up Homebrew's tracking database
+
+**Technical Details:** The bootstrap script now removes LaunchAgents before calling `brew uninstall`, preventing the sudo prompt that previously occurred.
 
 #### Mac App Store Applications
 
