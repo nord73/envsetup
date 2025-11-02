@@ -438,6 +438,8 @@ Follow this order for the cleanest setup:
 3. ✅ Run with `--apps` and/or `--mas` flags
 4. ✅ Sign into Mac App Store if using `mas`
 
+**Note:** If applications are already installed (e.g., in `/Applications`), the script will automatically reinstall them to `~/Applications` to ensure they're in the user-local directory. This ensures all your applications are in one location and don't require sudo for management.
+
 ### Phase 5: Additional Configuration
 1. ✅ Configure installed applications
 2. ✅ Set up shell preferences
