@@ -370,9 +370,15 @@ APP_NAME="$1"
 echo "Uninstalling $APP_NAME..."
 
 # Get the app display name from Homebrew
-APP_DISPLAY_NAME=$(brew info --cask "$APP_NAME" 2>/dev/null | head -1 | awk '{print $1}' | sed 's/://') || APP_DISPLAY_NAME=""
+# Try to get it reliably, with fallback to the app name if it fails
+APP_DISPLAY_NAME=""
+if command -v brew >/dev/null 2>&1; then
+  # First try: use brew info to get the cask name
+  APP_DISPLAY_NAME=$(brew info --cask "$APP_NAME" 2>/dev/null | head -1 | awk '{print $1}' | sed 's/://') || true
+fi
 
 if [ -z "$APP_DISPLAY_NAME" ]; then
+  # Fallback: use the provided app name
   echo "Warning: Could not find app info from Homebrew. Proceeding with manual cleanup..."
   APP_DISPLAY_NAME="$APP_NAME"
 fi
@@ -391,8 +397,16 @@ echo "Checking for LaunchAgents..."
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 if [ -d "$LAUNCH_AGENTS_DIR" ]; then
   # Common LaunchAgent patterns for the app
-  for pattern in "$APP_NAME" "$APP_DISPLAY_NAME" "$(echo $APP_NAME | sed 's/-//g')"; do
-    for plist in "$LAUNCH_AGENTS_DIR"/*"$pattern"*.plist; do
+  # Properly quote the command substitution to prevent word splitting
+  pattern_without_dash="$(echo "$APP_NAME" | sed 's/-//g')"
+  for pattern in "$APP_NAME" "$APP_DISPLAY_NAME" "$pattern_without_dash"; do
+    # Use nullglob-like behavior by checking if glob matches any files
+    shopt -s nullglob 2>/dev/null || true  # Enable nullglob if available (bash 4+)
+    plist_files=("$LAUNCH_AGENTS_DIR"/*"$pattern"*.plist)
+    shopt -u nullglob 2>/dev/null || true  # Disable nullglob
+    
+    for plist in "${plist_files[@]}"; do
+      # Additional check to ensure the file exists (for bash 3.2 compatibility)
       if [ -f "$plist" ]; then
         echo "Found LaunchAgent: $plist"
         # Try to unload it (may fail if not loaded, which is OK)
@@ -415,11 +429,14 @@ fi
 # Clean up Homebrew's tracking
 echo "Cleaning up Homebrew database..."
 if brew list --cask "$APP_NAME" >/dev/null 2>&1; then
-  # Use --force to bypass checks and --zap to remove all app data
-  brew uninstall --cask --force --zap "$APP_NAME" 2>/dev/null || {
-    echo "Warning: Homebrew cleanup failed. The app may still be tracked by Homebrew."
-    echo "You can try manually with: brew uninstall --cask --force $APP_NAME"
-  }
+  # Try with --zap first (removes all app data), fall back to without if it fails
+  if ! brew uninstall --cask --force --zap "$APP_NAME" 2>/dev/null; then
+    # --zap might not be supported or might fail, try without it
+    brew uninstall --cask --force "$APP_NAME" 2>/dev/null || {
+      echo "Warning: Homebrew cleanup failed. The app may still be tracked by Homebrew."
+      echo "You can try manually with: brew uninstall --cask --force $APP_NAME"
+    }
+  fi
 fi
 
 echo ""
