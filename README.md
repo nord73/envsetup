@@ -35,6 +35,14 @@ This repo helps bootstrap a clean development environment with essential tools, 
 
 The toolkit automatically detects your OS version and variant, adapting package installation accordingly. It handles version-specific differences like package names and repository configurations.
 
+## Requirements
+
+- **Bash 3.2+**: Scripts are compatible with the default Bash version on macOS (3.2.57) and all modern Linux distributions
+- **Git**: For cloning the repository
+- **Internet connection**: For downloading packages and dependencies
+
+**Note for macOS users:** The scripts work with the system-provided Bash 3.2. No need to upgrade to Bash 4+.
+
 ---
 
 ## Features
