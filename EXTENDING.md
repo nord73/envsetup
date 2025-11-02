@@ -227,6 +227,8 @@ Install with:
 bash scripts/bootstrap.sh --apps
 ```
 
+**Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access. This keeps your system clean and prevents permission issues on multi-user systems.
+
 **Finding App Names:**
 - Browse: https://formulae.brew.sh/cask/
 - Search: `brew search <app-name>`
