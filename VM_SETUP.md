@@ -94,7 +94,7 @@ bash vm/setup-dev-vm.sh --scenario=developer-desktop --desktop=xfce
 - VS Code
 - Docker CE
 - Development fonts
-- Browser (Firefox)
+- Browser (not installed by default; install separately as needed)
 - xRDP for remote access
 
 **Resource Requirements:**
