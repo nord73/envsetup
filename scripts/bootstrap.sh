@@ -334,6 +334,74 @@ BREWEOF
   done
 }
 
+# Function to clean up LaunchAgents for a macOS app without sudo
+cleanup_launch_agents() {
+  local app_name="$1"
+  local launch_agents_dir="$HOME/Library/LaunchAgents"
+  
+  if [ ! -d "$launch_agents_dir" ]; then
+    return 0
+  fi
+  
+  # Generate multiple patterns to catch various LaunchAgent naming conventions
+  local patterns=()
+  patterns+=("$app_name")  # Original name (e.g., "visual-studio-code")
+  
+  # Pattern without dashes (e.g., "visualstudiocode")
+  local pattern_without_dash="$(echo "$app_name" | sed 's/-//g')"
+  patterns+=("$pattern_without_dash")
+  
+  # Extract common abbreviations for well-known apps
+  # For example: visual-studio-code -> vscode
+  if [[ "$app_name" == "visual-studio-code" ]]; then
+    patterns+=("vscode" "VSCode")
+  elif [[ "$app_name" == "google-chrome" ]]; then
+    patterns+=("chrome" "Chrome")
+  elif [[ "$app_name" == "brave-browser" ]]; then
+    patterns+=("brave" "Brave")
+  fi
+  
+  local found_agents=false
+  local processed_files=()
+  
+  for pattern in "${patterns[@]}"; do
+    # Skip empty patterns
+    [ -z "$pattern" ] && continue
+    
+    # Find LaunchAgent plists matching the pattern
+    while IFS= read -r plist; do
+      if [ -f "$plist" ]; then
+        # Check if we already processed this file
+        local already_processed=false
+        for processed in "${processed_files[@]}"; do
+          if [ "$processed" = "$plist" ]; then
+            already_processed=true
+            break
+          fi
+        done
+        
+        if [ "$already_processed" = false ]; then
+          found_agents=true
+          processed_files+=("$plist")
+          echo "  Found LaunchAgent: $(basename "$plist")"
+          # Try to unload it (may fail if not loaded, which is OK)
+          if launchctl unload "$plist" 2>/dev/null; then
+            echo "    ✓ Unloaded LaunchAgent"
+          fi
+          # Remove the plist file
+          if rm -f "$plist" 2>/dev/null; then
+            echo "    ✓ Removed LaunchAgent"
+          fi
+        fi
+      fi
+    done < <(find "$launch_agents_dir" -maxdepth 1 -iname "*${pattern}*.plist" 2>/dev/null)
+  done
+  
+  if [ "$found_agents" = true ]; then
+    echo "  ✓ LaunchAgent cleanup complete"
+  fi
+}
+
 # Function to create uninstall helper script for macOS apps
 create_uninstall_helper() {
   local uninstall_script="$HOME/bin/uninstall-app.sh"
@@ -372,23 +440,93 @@ echo "Uninstalling $APP_NAME..."
 # Get the app display name from Homebrew
 # Try to get it reliably, with fallback to the app name if it fails
 APP_DISPLAY_NAME=""
+BREW_CASK_NAME=""
 if command -v brew >/dev/null 2>&1; then
+  # Helper function to get display name from cask name
+  get_display_name() {
+    brew info --cask "$1" 2>/dev/null | grep -E "^==> Name:" | sed 's/^==> Name: //' | head -1
+  }
+  
   # First try: use brew info to get the cask name
-  APP_DISPLAY_NAME=$(brew info --cask "$APP_NAME" 2>/dev/null | head -1 | awk '{print $1}' | sed 's/://') || true
+  if brew info --cask "$APP_NAME" >/dev/null 2>&1; then
+    BREW_CASK_NAME="$APP_NAME"
+    APP_DISPLAY_NAME=$(get_display_name "$APP_NAME") || true
+  else
+    # Try to find a matching cask by searching
+    echo "Searching for cask matching '$APP_NAME'..."
+    # Search for casks containing the app name (case-insensitive)
+    BREW_CASK_NAME=$(brew search --cask "$APP_NAME" 2>/dev/null | grep -i "^$APP_NAME$" | head -1) || true
+    if [ -z "$BREW_CASK_NAME" ]; then
+      # Try a broader search for partial matches using brew search with pattern
+      BREW_CASK_NAME=$(brew search --cask "*$APP_NAME*" 2>/dev/null | head -1) || true
+    fi
+    if [ -n "$BREW_CASK_NAME" ]; then
+      echo "Found cask: $BREW_CASK_NAME"
+      APP_DISPLAY_NAME=$(get_display_name "$BREW_CASK_NAME") || true
+    fi
+  fi
 fi
 
 if [ -z "$APP_DISPLAY_NAME" ]; then
   # Fallback: use the provided app name
   echo "Warning: Could not find app info from Homebrew. Proceeding with manual cleanup..."
   APP_DISPLAY_NAME="$APP_NAME"
+  BREW_CASK_NAME="$APP_NAME"
 fi
 
+echo "Looking for app: $APP_DISPLAY_NAME"
+
+# Pre-calculate all search patterns to avoid duplication
+pattern_without_dash="$(echo "$APP_NAME" | sed 's/-//g')"
+pattern_with_spaces="$(echo "$APP_NAME" | sed 's/-/ /g')"
+
 # Find the .app bundle in ~/Applications or /Applications
-APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 \( -iname "*${APP_DISPLAY_NAME}*.app" -o -iname "*${APP_NAME}*.app" \) 2>/dev/null | head -1)
+# Try multiple search patterns
+APP_BUNDLE=""
+
+# Pattern 1: Exact display name match
+if [ -z "$APP_BUNDLE" ]; then
+  APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 -iname "*${APP_DISPLAY_NAME}*.app" 2>/dev/null | head -1)
+fi
+
+# Pattern 2: Original input name match
+if [ -z "$APP_BUNDLE" ]; then
+  APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 -iname "*${APP_NAME}*.app" 2>/dev/null | head -1)
+fi
+
+# Pattern 3: Input name without dashes (e.g., visual-studio-code -> visualstudiocode)
+if [ -z "$APP_BUNDLE" ]; then
+  APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 -iname "*${pattern_without_dash}*.app" 2>/dev/null | head -1)
+fi
+
+# Pattern 4: Input name with dashes replaced by spaces (e.g., visual-studio-code -> visual studio code)
+if [ -z "$APP_BUNDLE" ]; then
+  APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 -iname "*${pattern_with_spaces}*.app" 2>/dev/null | head -1)
+fi
 
 if [ -z "$APP_BUNDLE" ]; then
-  # Check system Applications directory
-  APP_BUNDLE=$(find "/Applications" -maxdepth 1 \( -iname "*${APP_DISPLAY_NAME}*.app" -o -iname "*${APP_NAME}*.app" \) 2>/dev/null | head -1)
+  # Check system Applications directory with all patterns
+  
+  # Pattern 1: Exact display name match
+  if [ -z "$APP_BUNDLE" ]; then
+    APP_BUNDLE=$(find "/Applications" -maxdepth 1 -iname "*${APP_DISPLAY_NAME}*.app" 2>/dev/null | head -1)
+  fi
+  
+  # Pattern 2: Original input name match
+  if [ -z "$APP_BUNDLE" ]; then
+    APP_BUNDLE=$(find "/Applications" -maxdepth 1 -iname "*${APP_NAME}*.app" 2>/dev/null | head -1)
+  fi
+  
+  # Pattern 3: Input name without dashes
+  if [ -z "$APP_BUNDLE" ]; then
+    APP_BUNDLE=$(find "/Applications" -maxdepth 1 -iname "*${pattern_without_dash}*.app" 2>/dev/null | head -1)
+  fi
+  
+  # Pattern 4: Input name with dashes replaced by spaces
+  if [ -z "$APP_BUNDLE" ]; then
+    APP_BUNDLE=$(find "/Applications" -maxdepth 1 -iname "*${pattern_with_spaces}*.app" 2>/dev/null | head -1)
+  fi
+  
   if [ -n "$APP_BUNDLE" ]; then
     echo "Found app bundle in system Applications: $APP_BUNDLE"
     echo "Note: This app is in /Applications (system) and may require sudo to remove."
@@ -404,9 +542,15 @@ echo "Checking for LaunchAgents..."
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 if [ -d "$LAUNCH_AGENTS_DIR" ]; then
   # Common LaunchAgent patterns for the app
-  # Properly quote the command substitution to prevent word splitting
+  # Use multiple patterns to catch different naming conventions
   pattern_without_dash="$(echo "$APP_NAME" | sed 's/-//g')"
-  for pattern in "$APP_NAME" "$APP_DISPLAY_NAME" "$pattern_without_dash"; do
+  brew_pattern_without_dash="$(echo "$BREW_CASK_NAME" | sed 's/-//g')"
+  display_pattern_without_space="$(echo "$APP_DISPLAY_NAME" | sed 's/ //g')"
+  
+  for pattern in "$APP_NAME" "$BREW_CASK_NAME" "$APP_DISPLAY_NAME" "$pattern_without_dash" "$brew_pattern_without_dash" "$display_pattern_without_space"; do
+    # Skip empty patterns
+    [ -z "$pattern" ] && continue
+    
     # Use nullglob-like behavior by checking if glob matches any files
     shopt -s nullglob 2>/dev/null || true  # Enable nullglob if available (bash 4+)
     plist_files=("$LAUNCH_AGENTS_DIR"/*"$pattern"*.plist)
@@ -449,15 +593,21 @@ fi
 
 # Clean up Homebrew's tracking
 echo "Cleaning up Homebrew database..."
-if brew list --cask "$APP_NAME" >/dev/null 2>&1; then
+# Use the brew cask name we found earlier, or fall back to the input name
+CASK_TO_UNINSTALL="${BREW_CASK_NAME:-$APP_NAME}"
+
+if brew list --cask "$CASK_TO_UNINSTALL" >/dev/null 2>&1; then
+  echo "Found Homebrew cask: $CASK_TO_UNINSTALL"
   # Try with --zap first (removes all app data), fall back to without if it fails
-  if ! brew uninstall --cask --force --zap "$APP_NAME" 2>/dev/null; then
+  if ! brew uninstall --cask --force --zap "$CASK_TO_UNINSTALL" 2>/dev/null; then
     # --zap might not be supported or might fail, try without it
-    brew uninstall --cask --force "$APP_NAME" 2>/dev/null || {
+    brew uninstall --cask --force "$CASK_TO_UNINSTALL" 2>/dev/null || {
       echo "Warning: Homebrew cleanup failed. The app may still be tracked by Homebrew."
-      echo "You can try manually with: brew uninstall --cask --force $APP_NAME"
+      echo "You can try manually with: brew uninstall --cask --force $CASK_TO_UNINSTALL"
     }
   fi
+else
+  echo "App not found in Homebrew cask database (already uninstalled or not installed via Homebrew)"
 fi
 
 echo ""
@@ -525,6 +675,10 @@ install_macos_apps() {
       else
         # App is installed but not in ~/Applications - likely in /Applications
         echo "$app is installed but not in ~/Applications. Reinstalling to user directory..."
+        
+        # Clean up LaunchAgents first to avoid sudo requirement during uninstall
+        echo "Checking for LaunchAgents that might require sudo during uninstall..."
+        cleanup_launch_agents "$app"
         
         # First, uninstall without removing the app from /Applications (just Homebrew tracking)
         if brew uninstall --cask "$app" 2>/dev/null; then
