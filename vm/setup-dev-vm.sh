@@ -169,8 +169,11 @@ if [ -f "$REPO_ROOT/scripts/bootstrap.sh" ]; then
   ENVSETUP_ARGS=""
   
   case "$SCENARIO" in
-    headless|remote-dev)
+    headless)
       ENVSETUP_ARGS="--scenario=production-server"
+      ;;
+    remote-dev)
+      ENVSETUP_ARGS="--scenario=development-server"
       ;;
     minimal-desktop)
       ENVSETUP_ARGS="--scenario=clean-desktop"
