@@ -185,11 +185,7 @@ install_fedora() {
 
 # Function to check if Xcode Command Line Tools are installed
 check_xcode_clt() {
-  if xcode-select -p >/dev/null 2>&1; then
-    return 0  # Installed
-  else
-    return 1  # Not installed
-  fi
+  xcode-select -p >/dev/null 2>&1
 }
 
 # Function to check if Xcode license has been accepted
@@ -201,16 +197,15 @@ check_xcode_license() {
   fi
   
   # Check if xcodebuild exists and can be run
+  # Note: Some minimal Xcode CLT installations may not include xcodebuild.
+  # This is acceptable for Homebrew as it primarily needs compilers (clang, make)
+  # which are available even without xcodebuild.
   if ! command -v xcodebuild >/dev/null 2>&1; then
-    return 0  # xcodebuild not available, assume OK (CLT might be minimal)
+    return 0  # xcodebuild not available, assume OK for Homebrew usage
   fi
   
   # Run xcodebuild -license check
-  if xcodebuild -license check >/dev/null 2>&1; then
-    return 0  # License accepted
-  else
-    return 1  # License not accepted
-  fi
+  xcodebuild -license check >/dev/null 2>&1
 }
 
 # Function to ensure Xcode Command Line Tools are ready for Homebrew
@@ -241,7 +236,7 @@ ensure_xcode_ready() {
       exit 1
     fi
     echo "Continuing... Note: Some packages may fail to install."
-    return 1
+    # CLT not installed, but user chose to continue
   fi
   
   echo "✓ Xcode Command Line Tools are installed at: $(xcode-select -p)"
