@@ -113,8 +113,11 @@ bash scripts/bootstrap.sh --docker
 # Install marcosnils/bin tool for binary management
 bash scripts/bootstrap.sh --bin
 
+# Install Tailscale VPN
+bash scripts/bootstrap.sh --tailscale
+
 # Combine options
-bash scripts/bootstrap.sh --scenario=development-server --docker --bin
+bash scripts/bootstrap.sh --scenario=development-server --docker --bin --tailscale
 ```
 
 ---

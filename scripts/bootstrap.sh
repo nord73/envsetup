@@ -39,6 +39,7 @@ INSTALL_MACOS_APPS=false
 INSTALL_MAS_APPS=false
 INSTALL_LINUX_PACKAGES=false
 INSTALL_FLATPAK_APPS=false
+INSTALL_TAILSCALE=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -63,6 +64,9 @@ for arg in "$@"; do
     --flatpak)
       INSTALL_FLATPAK_APPS=true
       ;;
+    --tailscale)
+      INSTALL_TAILSCALE=true
+      ;;
     --help)
       echo "Usage: $0 [OPTIONS]"
       echo ""
@@ -75,6 +79,7 @@ for arg in "$@"; do
       echo "  --mas              Install macOS App Store applications from mas-apps.txt"
       echo "  --packages         Install Linux packages from linux-packages.txt (Ubuntu/Debian/Fedora)"
       echo "  --flatpak          Install Flatpak applications from flatpak-apps.txt"
+      echo "  --tailscale        Install Tailscale VPN (macOS/Linux)"
       echo "  --help             Show this help message"
       exit 0
       ;;
@@ -535,6 +540,150 @@ install_flatpak_apps() {
   echo "Flatpak app installation complete."
 }
 
+# Function to install Tailscale on macOS
+install_tailscale_macos() {
+  if command -v tailscale >/dev/null 2>&1; then
+    echo "Tailscale is already installed."
+    return 0
+  fi
+  
+  echo "Installing Tailscale via Homebrew Cask..."
+  echo "Note: Tailscale installation requires sudo for the privileged helper."
+  
+  if brew install --cask tailscale; then
+    echo "✓ Tailscale installed successfully."
+    echo ""
+    echo "=========================================="
+    echo "Tailscale Setup"
+    echo "=========================================="
+    echo "To start using Tailscale:"
+    echo "  1. Launch Tailscale from Applications"
+    echo "  2. Sign in with your Tailscale account"
+    echo "  3. Or run: open -a Tailscale"
+    echo ""
+    echo "For command-line usage:"
+    echo "  sudo tailscale up    # Connect to your network"
+    echo "  tailscale status     # Check connection status"
+    echo "=========================================="
+  else
+    echo "⚠ Failed to install Tailscale."
+    return 1
+  fi
+}
+
+# Function to install Tailscale on Linux
+install_tailscale_linux() {
+  if command -v tailscale >/dev/null 2>&1; then
+    echo "Tailscale is already installed."
+    return 0
+  fi
+  
+  echo "Installing Tailscale..."
+  
+  case "$OS_NAME" in
+    ubuntu|debian)
+      echo "Adding Tailscale repository..."
+      
+      # Detect distribution codename
+      local DISTRO_CODENAME
+      if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        DISTRO_CODENAME="${VERSION_CODENAME}"
+      fi
+      
+      # If we still don't have a codename, try lsb_release
+      if [ -z "$DISTRO_CODENAME" ] && command -v lsb_release >/dev/null 2>&1; then
+        DISTRO_CODENAME=$(lsb_release -cs)
+      fi
+      
+      # Last resort: use OS_VERSION_CODENAME from os_detection.sh
+      if [ -z "$DISTRO_CODENAME" ]; then
+        DISTRO_CODENAME="${OS_VERSION_CODENAME:-jammy}"
+      fi
+      
+      echo "Using distribution codename: $DISTRO_CODENAME"
+      
+      # Add Tailscale's GPG key and repository with error handling
+      if ! curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${DISTRO_CODENAME}.noarmor.gpg" -o /tmp/tailscale-keyring.gpg; then
+        echo "⚠ Failed to download Tailscale GPG key."
+        return 1
+      fi
+      
+      if ! sudo install -m 644 /tmp/tailscale-keyring.gpg /usr/share/keyrings/tailscale-archive-keyring.gpg; then
+        echo "⚠ Failed to install Tailscale GPG key."
+        rm -f /tmp/tailscale-keyring.gpg
+        return 1
+      fi
+      rm -f /tmp/tailscale-keyring.gpg
+      
+      if ! curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${DISTRO_CODENAME}.tailscale-keyring.list" -o /tmp/tailscale.list; then
+        echo "⚠ Failed to download Tailscale repository list."
+        return 1
+      fi
+      
+      if ! sudo install -m 644 /tmp/tailscale.list /etc/apt/sources.list.d/tailscale.list; then
+        echo "⚠ Failed to install Tailscale repository list."
+        rm -f /tmp/tailscale.list
+        return 1
+      fi
+      rm -f /tmp/tailscale.list
+      
+      sudo apt update
+      if sudo apt install -y tailscale; then
+        echo "✓ Tailscale installed successfully."
+        echo ""
+        echo "=========================================="
+        echo "Tailscale Setup"
+        echo "=========================================="
+        echo "To start using Tailscale:"
+        echo "  sudo tailscale up       # Connect to your network"
+        echo "  sudo tailscale up --ssh # Connect with SSH enabled"
+        echo "  tailscale status        # Check connection status"
+        echo "=========================================="
+      else
+        echo "⚠ Failed to install Tailscale."
+        return 1
+      fi
+      ;;
+    fedora)
+      echo "Adding Tailscale repository..."
+      
+      # Add Tailscale's Fedora repository with error handling
+      if ! sudo dnf config-manager --add-repo https://pkgs.tailscale.com/stable/fedora/tailscale.repo; then
+        echo "⚠ Failed to add Tailscale repository."
+        return 1
+      fi
+      
+      if sudo dnf install -y tailscale; then
+        echo "✓ Tailscale installed successfully."
+        
+        # Enable and start the service
+        if command -v systemctl >/dev/null 2>&1; then
+          sudo systemctl enable --now tailscaled
+        fi
+        
+        echo ""
+        echo "=========================================="
+        echo "Tailscale Setup"
+        echo "=========================================="
+        echo "To start using Tailscale:"
+        echo "  sudo tailscale up       # Connect to your network"
+        echo "  sudo tailscale up --ssh # Connect with SSH enabled"
+        echo "  tailscale status        # Check connection status"
+        echo "=========================================="
+      else
+        echo "⚠ Failed to install Tailscale."
+        return 1
+      fi
+      ;;
+    *)
+      echo "Tailscale installation not supported for $OS_NAME."
+      echo "Please visit https://tailscale.com/download for manual installation."
+      return 1
+      ;;
+  esac
+}
+
 # Function to install hypervisor guest agent
 install_hypervisor_agent() {
   # Detect hypervisor
@@ -794,6 +943,11 @@ if [[ "$OS_NAME" == "ubuntu" ]] || [[ "$OS_NAME" == "debian" ]]; then
   if [ "$INSTALL_FLATPAK_APPS" = true ]; then
     install_flatpak_apps
   fi
+  
+  # Install Tailscale if requested
+  if [ "$INSTALL_TAILSCALE" = true ]; then
+    install_tailscale_linux
+  fi
 elif [[ "$OS_NAME" == "fedora" ]]; then
   install_fedora
   # Install hypervisor agent for VMs
@@ -811,6 +965,11 @@ elif [[ "$OS_NAME" == "fedora" ]]; then
   if [ "$INSTALL_FLATPAK_APPS" = true ]; then
     install_flatpak_apps
   fi
+  
+  # Install Tailscale if requested
+  if [ "$INSTALL_TAILSCALE" = true ]; then
+    install_tailscale_linux
+  fi
 elif [[ "$OS_NAME" == "macos" ]]; then
   install_macos
   
@@ -827,6 +986,11 @@ elif [[ "$OS_NAME" == "macos" ]]; then
   # On MacOS, recommend Docker Desktop
   if [ "$INSTALL_DOCKER" = true ]; then
     echo "Please install Docker Desktop from https://www.docker.com/products/docker-desktop/"
+  fi
+  
+  # Install Tailscale if requested
+  if [ "$INSTALL_TAILSCALE" = true ]; then
+    install_tailscale_macos
   fi
 else
   echo "Unsupported OS: $(get_os_display_name)"

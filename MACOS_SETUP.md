@@ -562,6 +562,21 @@ postman
 - ✓ Collection management
 - ✓ Team collaboration features
 
+### Network & VPN Tools
+
+**Tailscale** (Secure Network)
+```bash
+# Install via bootstrap script
+bash scripts/bootstrap.sh --tailscale
+```
+- ✓ Zero-config VPN with WireGuard
+- ✓ Secure remote access to devices
+- ✓ Works behind NAT and firewalls
+- ✓ Free for personal use (up to 20 devices)
+- ✓ Great for remote development and secure connections
+
+**Note:** Tailscale installation requires sudo for the privileged helper.
+
 ### Command Line Utilities
 
 **Modern Replacements for Classic Tools:**

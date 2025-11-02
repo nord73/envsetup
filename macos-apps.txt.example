@@ -46,6 +46,9 @@
 # the-unarchiver  # Archive extraction
 # appcleaner      # Application uninstaller
 #
+# === Network & VPN ===
+# Note: For Tailscale, use: bash scripts/bootstrap.sh --tailscale
+#
 # === Development Utilities ===
 # insomnia        # API client (alternative to Postman)
 # tableplus       # Database management
