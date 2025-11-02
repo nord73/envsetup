@@ -358,10 +358,22 @@ install_macos_apps() {
     app=$(echo "$app" | sed 's/#.*//' | xargs)
     
     echo "Installing $app via Homebrew Cask..."
-    if brew install --cask --appdir="$HOME/Applications" "$app" 2>/dev/null; then
-      echo "✓ $app installed successfully."
+    
+    # Check if app is already installed
+    if brew list --cask "$app" &>/dev/null; then
+      echo "  $app is already installed, reinstalling to ~/Applications..."
+      if brew reinstall --cask --appdir="$HOME/Applications" "$app"; then
+        echo "✓ $app reinstalled successfully to ~/Applications."
+      else
+        echo "⚠ Failed to reinstall $app."
+      fi
     else
-      echo "⚠ Failed to install $app (may already be installed or not found)."
+      # App not installed, install it fresh
+      if brew install --cask --appdir="$HOME/Applications" "$app"; then
+        echo "✓ $app installed successfully."
+      else
+        echo "⚠ Failed to install $app."
+      fi
     fi
   done < "$apps_file"
   
