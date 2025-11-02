@@ -576,7 +576,9 @@ install_bin_tool() {
   echo "Downloading bin ${latest_version} for ${os_type}_${arch_type}..."
   
   # Download and install bin
-  local temp_file="$HOME/bin/bin.tmp"
+  local temp_file
+  temp_file=$(mktemp) || temp_file="$HOME/bin/bin.tmp"
+  
   if curl -sSL "$download_url" -o "$temp_file"; then
     # Verify the downloaded file is an executable binary
     if ! file "$temp_file" | grep -qE "(executable|Mach-O)"; then
@@ -597,6 +599,7 @@ install_bin_tool() {
     fi
   else
     echo "Warning: Failed to install bin. Please install manually from https://github.com/marcosnils/bin"
+    rm -f "$temp_file"
     return 1
   fi
 }
