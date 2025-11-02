@@ -183,6 +183,86 @@ install_fedora() {
   done
 }
 
+# Function to check if Xcode Command Line Tools are installed
+check_xcode_clt() {
+  xcode-select -p >/dev/null 2>&1
+}
+
+# Function to check if Xcode license has been accepted
+check_xcode_license() {
+  # Try to run xcodebuild to check license status
+  # If license hasn't been accepted, it will fail with specific error
+  if ! check_xcode_clt; then
+    return 2  # CLT not installed, can't check license
+  fi
+  
+  # Check if xcodebuild exists and can be run
+  # Note: Some minimal Xcode CLT installations may not include xcodebuild.
+  # This is acceptable for Homebrew as it primarily needs compilers (clang, make)
+  # which are available even without xcodebuild.
+  if ! command -v xcodebuild >/dev/null 2>&1; then
+    return 0  # xcodebuild not available, assume OK for Homebrew usage
+  fi
+  
+  # Run xcodebuild -license check
+  xcodebuild -license check >/dev/null 2>&1
+}
+
+# Function to ensure Xcode Command Line Tools are ready for Homebrew
+ensure_xcode_ready() {
+  echo "Checking Xcode Command Line Tools..."
+  
+  if ! check_xcode_clt; then
+    echo ""
+    echo "=========================================="
+    echo "⚠️  Xcode Command Line Tools Not Found"
+    echo "=========================================="
+    echo ""
+    echo "Xcode Command Line Tools are required for Homebrew to compile"
+    echo "packages from source. Some packages may fail to install without them."
+    echo ""
+    echo "To install Xcode Command Line Tools, run:"
+    echo "  xcode-select --install"
+    echo ""
+    echo "Then follow the prompts to complete the installation."
+    echo ""
+    echo "After installation, run this script again."
+    echo "=========================================="
+    echo ""
+    read -p "Continue without Xcode CLT? Some packages may fail. (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      echo "Installation cancelled. Please install Xcode Command Line Tools first."
+      exit 1
+    fi
+    echo "Continuing... Note: Some packages may fail to install."
+    # CLT not installed, but user chose to continue
+  fi
+  
+  echo "✓ Xcode Command Line Tools are installed at: $(xcode-select -p)"
+  
+  # Check license status
+  local license_status
+  check_xcode_license
+  license_status=$?
+  
+  if [ $license_status -eq 1 ]; then
+    echo ""
+    echo "⚠️  Xcode license has not been accepted. Accepting it now..."
+    echo ""
+    if sudo xcodebuild -license accept; then
+      echo "✓ Xcode license accepted successfully"
+    else
+      echo "Error: Failed to accept Xcode license. Please run manually:"
+      echo "  sudo xcodebuild -license accept"
+      exit 1
+    fi
+  else
+    echo "✓ Xcode license has been accepted"
+  fi
+  return 0
+}
+
 # Function to install tools on MacOS
 install_macos() {
   BREW_PREFIX="$HOME/.brew"
@@ -224,6 +304,9 @@ BREWEOF
     export PATH="$BREW_PREFIX/bin:$PATH"
     export HOMEBREW_PREFIX="$BREW_PREFIX"
   fi
+  
+  # Ensure Xcode Command Line Tools are ready before installing packages
+  ensure_xcode_ready
   
   echo "Installing tools for $(get_os_display_name)..."
   for tool in "${TOOLS[@]}"; do
