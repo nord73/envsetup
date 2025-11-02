@@ -361,12 +361,8 @@ install_macos_apps() {
     
     # Check if app is already installed
     if brew list --cask "$app" >/dev/null 2>&1; then
-      echo "$app is already installed, reinstalling to ~/Applications..."
-      if brew reinstall --cask --appdir="$HOME/Applications" "$app"; then
-        echo "✓ $app reinstalled successfully to ~/Applications."
-      else
-        echo "⚠ Failed to reinstall $app."
-      fi
+      echo "$app is already installed, skipping to avoid sudo requirement."
+      echo "Note: To move existing apps to ~/Applications, uninstall them first with: brew uninstall --cask $app"
     else
       # App not installed, install it fresh
       if brew install --cask --appdir="$HOME/Applications" "$app"; then
