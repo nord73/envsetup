@@ -375,6 +375,7 @@ install_macos_apps() {
       # Check if app is already installed to ~/Applications
       # Use grep -F for fixed-string matching to avoid regex escaping issues
       # Look for the artifact path pattern: " -> path/to/app" to avoid false positives
+      # Expected brew info format: "AppName.app -> /path/to/Applications/AppName.app"
       # Check for both expanded path ($HOME/Applications/) and tilde notation (~/Applications/)
       if echo "$app_info" | grep -qF -e " -> $HOME/Applications/" -e " -> ~/Applications/"; then
         echo "$app is already installed to ~/Applications. Skipping reinstall."
