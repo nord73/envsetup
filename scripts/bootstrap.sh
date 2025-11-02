@@ -361,11 +361,23 @@ install_macos_apps() {
     
     # Check if app is already installed
     if brew list --cask "$app" >/dev/null 2>&1; then
-      echo "$app is already installed, reinstalling to ~/Applications..."
-      if brew reinstall --cask --appdir="$HOME/Applications" "$app"; then
-        echo "✓ $app reinstalled successfully to ~/Applications."
+      # App is installed, check where it's installed
+      # Use brew info to get installation location
+      local app_info
+      app_info=$(brew info --cask "$app" 2>/dev/null)
+      
+      # Check if app is already installed to ~/Applications
+      if echo "$app_info" | grep -q "$HOME/Applications"; then
+        echo "$app is already installed to ~/Applications. Skipping reinstall."
+        echo "✓ $app is up to date in ~/Applications."
       else
-        echo "⚠ Failed to reinstall $app."
+        # App is installed elsewhere (e.g., /Applications), need to reinstall
+        echo "$app is installed to a different location, reinstalling to ~/Applications..."
+        if brew reinstall --cask --appdir="$HOME/Applications" "$app"; then
+          echo "✓ $app reinstalled successfully to ~/Applications."
+        else
+          echo "⚠ Failed to reinstall $app."
+        fi
       fi
     else
       # App not installed, install it fresh
