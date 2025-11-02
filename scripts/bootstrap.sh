@@ -345,6 +345,9 @@ install_macos_apps() {
     # Skip empty lines and comments
     [[ -z "$app" || "$app" =~ ^[[:space:]]*# ]] && continue
     
+    # Strip inline comments (everything after #)
+    app=$(echo "$app" | sed 's/#.*//')
+    
     # Trim whitespace
     app=$(echo "$app" | xargs)
     
@@ -436,6 +439,9 @@ install_linux_packages() {
     # Skip empty lines and comments
     [[ -z "$package" || "$package" =~ ^[[:space:]]*# ]] && continue
     
+    # Strip inline comments (everything after #)
+    package=$(echo "$package" | sed 's/#.*//')
+    
     # Trim whitespace
     package=$(echo "$package" | xargs)
     
@@ -515,6 +521,9 @@ install_flatpak_apps() {
   while IFS= read -r app_id || [ -n "$app_id" ]; do
     # Skip empty lines and comments
     [[ -z "$app_id" || "$app_id" =~ ^[[:space:]]*# ]] && continue
+    
+    # Strip inline comments (everything after #)
+    app_id=$(echo "$app_id" | sed 's/#.*//')
     
     # Trim whitespace
     app_id=$(echo "$app_id" | xargs)
