@@ -442,22 +442,27 @@ echo "Uninstalling $APP_NAME..."
 APP_DISPLAY_NAME=""
 BREW_CASK_NAME=""
 if command -v brew >/dev/null 2>&1; then
+  # Helper function to get display name from cask name
+  get_display_name() {
+    brew info --cask "$1" 2>/dev/null | grep -E "^==> Name:" | sed 's/^==> Name: //' | head -1
+  }
+  
   # First try: use brew info to get the cask name
   if brew info --cask "$APP_NAME" >/dev/null 2>&1; then
     BREW_CASK_NAME="$APP_NAME"
-    APP_DISPLAY_NAME=$(brew info --cask "$APP_NAME" 2>/dev/null | grep -E "^==> Name:" | sed 's/^==> Name: //' | head -1) || true
+    APP_DISPLAY_NAME=$(get_display_name "$APP_NAME") || true
   else
     # Try to find a matching cask by searching
     echo "Searching for cask matching '$APP_NAME'..."
     # Search for casks containing the app name (case-insensitive)
     BREW_CASK_NAME=$(brew search --cask "$APP_NAME" 2>/dev/null | grep -i "^$APP_NAME$" | head -1) || true
     if [ -z "$BREW_CASK_NAME" ]; then
-      # Try a broader search for partial matches
-      BREW_CASK_NAME=$(brew search --cask 2>/dev/null | grep -i "$APP_NAME" | head -1) || true
+      # Try a broader search for partial matches using brew search with pattern
+      BREW_CASK_NAME=$(brew search --cask "*$APP_NAME*" 2>/dev/null | head -1) || true
     fi
     if [ -n "$BREW_CASK_NAME" ]; then
       echo "Found cask: $BREW_CASK_NAME"
-      APP_DISPLAY_NAME=$(brew info --cask "$BREW_CASK_NAME" 2>/dev/null | grep -E "^==> Name:" | sed 's/^==> Name: //' | head -1) || true
+      APP_DISPLAY_NAME=$(get_display_name "$BREW_CASK_NAME") || true
     fi
   fi
 fi
@@ -470,6 +475,10 @@ if [ -z "$APP_DISPLAY_NAME" ]; then
 fi
 
 echo "Looking for app: $APP_DISPLAY_NAME"
+
+# Pre-calculate all search patterns to avoid duplication
+pattern_without_dash="$(echo "$APP_NAME" | sed 's/-//g')"
+pattern_with_spaces="$(echo "$APP_NAME" | sed 's/-/ /g')"
 
 # Find the .app bundle in ~/Applications or /Applications
 # Try multiple search patterns
@@ -487,13 +496,11 @@ fi
 
 # Pattern 3: Input name without dashes (e.g., visual-studio-code -> visualstudiocode)
 if [ -z "$APP_BUNDLE" ]; then
-  pattern_without_dash="$(echo "$APP_NAME" | sed 's/-//g')"
   APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 -iname "*${pattern_without_dash}*.app" 2>/dev/null | head -1)
 fi
 
 # Pattern 4: Input name with dashes replaced by spaces (e.g., visual-studio-code -> visual studio code)
 if [ -z "$APP_BUNDLE" ]; then
-  pattern_with_spaces="$(echo "$APP_NAME" | sed 's/-/ /g')"
   APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 -iname "*${pattern_with_spaces}*.app" 2>/dev/null | head -1)
 fi
 
@@ -512,13 +519,11 @@ if [ -z "$APP_BUNDLE" ]; then
   
   # Pattern 3: Input name without dashes
   if [ -z "$APP_BUNDLE" ]; then
-    pattern_without_dash="$(echo "$APP_NAME" | sed 's/-//g')"
     APP_BUNDLE=$(find "/Applications" -maxdepth 1 -iname "*${pattern_without_dash}*.app" 2>/dev/null | head -1)
   fi
   
   # Pattern 4: Input name with dashes replaced by spaces
   if [ -z "$APP_BUNDLE" ]; then
-    pattern_with_spaces="$(echo "$APP_NAME" | sed 's/-/ /g')"
     APP_BUNDLE=$(find "/Applications" -maxdepth 1 -iname "*${pattern_with_spaces}*.app" 2>/dev/null | head -1)
   fi
   
