@@ -531,8 +531,64 @@ install_bin_tool() {
   echo "Installing marcosnils/bin..."
   mkdir -p "$HOME/bin"
   
+  # Detect OS and architecture
+  local os_type arch_type binary_name
+  
+  case "$(uname -s)" in
+    Darwin*)
+      os_type="darwin"
+      ;;
+    Linux*)
+      os_type="linux"
+      ;;
+    *)
+      echo "Warning: Unsupported OS for bin installation. Please install manually from https://github.com/marcosnils/bin"
+      return 1
+      ;;
+  esac
+  
+  case "$(uname -m)" in
+    x86_64|amd64)
+      arch_type="amd64"
+      ;;
+    arm64|aarch64)
+      arch_type="arm64"
+      ;;
+    *)
+      echo "Warning: Unsupported architecture for bin installation. Please install manually from https://github.com/marcosnils/bin"
+      return 1
+      ;;
+  esac
+  
+  # Get latest release version by following the redirect from /releases/latest
+  local latest_version
+  latest_version=$(curl -sI https://github.com/marcosnils/bin/releases/latest | grep -i "^location:" | sed 's|.*/tag/||' | tr -d '\r\n')
+  
+  # Validate version format (should start with 'v' followed by digits)
+  if [ -z "$latest_version" ] || ! echo "$latest_version" | grep -qE '^v[0-9]+\.[0-9]+'; then
+    echo "Warning: Failed to get valid bin version. Please install manually from https://github.com/marcosnils/bin"
+    return 1
+  fi
+  
+  binary_name="bin_${latest_version#v}_${os_type}_${arch_type}"
+  local download_url="https://github.com/marcosnils/bin/releases/download/${latest_version}/${binary_name}"
+  
+  echo "Downloading bin ${latest_version} for ${os_type}_${arch_type}..."
+  
   # Download and install bin
-  if curl -sSL https://raw.githubusercontent.com/marcosnils/bin/master/install.sh | bash -s -- -d "$HOME/bin"; then
+  local temp_file
+  temp_file=$(mktemp) || temp_file="$HOME/bin/bin.tmp"
+  
+  if curl -sSL "$download_url" -o "$temp_file"; then
+    # Verify the downloaded file is an executable binary
+    if ! file "$temp_file" | grep -qE "(executable|Mach-O)"; then
+      echo "Warning: Downloaded file is not a valid executable. Installation failed."
+      rm -f "$temp_file"
+      return 1
+    fi
+    
+    mv "$temp_file" "$HOME/bin/bin"
+    chmod +x "$HOME/bin/bin"
     echo "bin installed successfully to ~/bin/"
     echo "Make sure ~/bin is in your PATH"
     
@@ -543,6 +599,8 @@ install_bin_tool() {
     fi
   else
     echo "Warning: Failed to install bin. Please install manually from https://github.com/marcosnils/bin"
+    rm -f "$temp_file"
+    return 1
   fi
 }
 
