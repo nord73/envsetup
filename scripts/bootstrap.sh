@@ -358,10 +358,10 @@ if [ $# -eq 0 ]; then
   echo ""
   echo "This script:"
   echo "  1. Stops and removes user-level LaunchAgents"
-  echo "  2. Removes the app from ~/Applications"
+  echo "  2. Removes the app from ~/Applications or /Applications"
   echo "  3. Cleans up Homebrew's tracking database"
   echo ""
-  echo "Note: This only works for apps installed to ~/Applications"
+  echo "Note: Apps in /Applications may require sudo to remove"
   exit 1
 fi
 
@@ -383,11 +383,18 @@ if [ -z "$APP_DISPLAY_NAME" ]; then
   APP_DISPLAY_NAME="$APP_NAME"
 fi
 
-# Find the .app bundle in ~/Applications
-APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 -name "*${APP_DISPLAY_NAME}*.app" -o -name "*${APP_NAME}*.app" 2>/dev/null | head -1)
+# Find the .app bundle in ~/Applications or /Applications
+APP_BUNDLE=$(find "$HOME/Applications" -maxdepth 1 \( -iname "*${APP_DISPLAY_NAME}*.app" -o -iname "*${APP_NAME}*.app" \) 2>/dev/null | head -1)
 
 if [ -z "$APP_BUNDLE" ]; then
-  echo "Warning: Could not find app bundle in ~/Applications"
+  # Check system Applications directory
+  APP_BUNDLE=$(find "/Applications" -maxdepth 1 \( -iname "*${APP_DISPLAY_NAME}*.app" -o -iname "*${APP_NAME}*.app" \) 2>/dev/null | head -1)
+  if [ -n "$APP_BUNDLE" ]; then
+    echo "Found app bundle in system Applications: $APP_BUNDLE"
+    echo "Note: This app is in /Applications (system) and may require sudo to remove."
+  else
+    echo "Warning: Could not find app bundle in ~/Applications or /Applications"
+  fi
 else
   echo "Found app bundle: $APP_BUNDLE"
 fi
@@ -422,8 +429,22 @@ fi
 # Remove the app bundle
 if [ -n "$APP_BUNDLE" ] && [ -d "$APP_BUNDLE" ]; then
   echo "Removing app bundle..."
-  rm -rf "$APP_BUNDLE"
-  echo "✓ Removed $APP_BUNDLE"
+  
+  # Check if the app is in /Applications (system) which may require sudo
+  if [[ "$APP_BUNDLE" == "/Applications/"* ]]; then
+    echo "Warning: App is in system /Applications directory."
+    echo "Attempting to remove without sudo first..."
+    if rm -rf "$APP_BUNDLE" 2>/dev/null; then
+      echo "✓ Removed $APP_BUNDLE"
+    else
+      echo "⚠ Could not remove app from /Applications without sudo."
+      echo "To remove manually, run: sudo rm -rf \"$APP_BUNDLE\""
+    fi
+  else
+    # App is in ~/Applications, safe to remove without sudo
+    rm -rf "$APP_BUNDLE"
+    echo "✓ Removed $APP_BUNDLE"
+  fi
 fi
 
 # Clean up Homebrew's tracking
@@ -483,8 +504,43 @@ install_macos_apps() {
     
     # Check if app is already installed
     if brew list --cask "$app" >/dev/null 2>&1; then
-      echo "$app is already installed, skipping to avoid sudo requirement."
-      echo "Note: To move existing apps to ~/Applications, see uninstall instructions in README"
+      # App is tracked by Homebrew, but check if it's in the right location
+      # Get the app display name to find the .app bundle
+      app_display_name=$(brew info --cask "$app" 2>/dev/null | grep -E "^==> Name:" | sed 's/^==> Name: //' | head -1)
+      if [ -z "$app_display_name" ]; then
+        app_display_name="$app"
+      fi
+      
+      # Check common app naming patterns in ~/Applications
+      app_in_user_dir=false
+      for pattern in "$app_display_name" "$(echo "$app_display_name" | sed 's/-/ /g')" "$(echo "$app" | sed 's/-/ /g')"; do
+        if find "$HOME/Applications" -maxdepth 1 -iname "*${pattern}*.app" 2>/dev/null | grep -q .; then
+          app_in_user_dir=true
+          break
+        fi
+      done
+      
+      if [ "$app_in_user_dir" = true ]; then
+        echo "$app is already installed in ~/Applications."
+      else
+        # App is installed but not in ~/Applications - likely in /Applications
+        echo "$app is installed but not in ~/Applications. Reinstalling to user directory..."
+        
+        # First, uninstall without removing the app from /Applications (just Homebrew tracking)
+        if brew uninstall --cask "$app" 2>/dev/null; then
+          echo "Unlinked $app from Homebrew."
+        else
+          echo "Warning: Failed to unlink $app from Homebrew. Attempting fresh install..."
+        fi
+        
+        # Now install to ~/Applications
+        if brew install --cask "$app"; then
+          echo "✓ $app reinstalled successfully to ~/Applications."
+          echo "Note: The old version in /Applications should be removed manually if present."
+        else
+          echo "⚠ Failed to reinstall $app."
+        fi
+      fi
     else
       # App not installed, install it fresh
       if brew install --cask "$app"; then
