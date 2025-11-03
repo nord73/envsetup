@@ -569,7 +569,7 @@ LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 if [ -d "$LAUNCH_AGENTS_DIR" ]; then
   # Common LaunchAgent patterns for the app
   # Use multiple patterns to catch different naming conventions
-  pattern_without_dash="$(echo "$APP_NAME" | sed 's/-//g')"
+  # Reuse patterns calculated earlier to avoid duplication
   brew_pattern_without_dash="$(echo "$BREW_CASK_NAME" | sed 's/-//g')"
   display_pattern_without_space="$(echo "$APP_DISPLAY_NAME" | sed 's/ //g')"
   
@@ -600,7 +600,7 @@ if [ -d "$LAUNCH_AGENTS_DIR" ]; then
         # Try to stop the service using modern launchctl bootout (macOS 10.11+)
         if [ -n "$service_label" ]; then
           # Get current user domain
-          local user_domain="gui/$(id -u)"
+          user_domain="gui/$(id -u)"
           if launchctl bootout "$user_domain/$service_label" 2>/dev/null; then
             echo "  ✓ Stopped service: $service_label"
           else
