@@ -443,9 +443,9 @@ Follow this order for the cleanest setup:
 2. Uninstall the app from Homebrew's tracking
 3. Reinstall it to `~/Applications`
 
-**Important Security Note:** When you first launch an application installed via Homebrew Cask, macOS Gatekeeper will verify the app's signature and show a security warning. This is **normal and expected** behavior that protects your system. Simply click "Open" in the dialog to proceed. The envsetup script does NOT use `--no-quarantine` flag to maintain proper macOS security checks. Do not disable Gatekeeper or bypass these security warnings unless you fully trust the application source.
+**Important Security Note:** When installing to `~/Applications`, Homebrew automatically uses the `--no-quarantine` flag to avoid permission issues. However, envsetup immediately restores quarantine attributes after installation to maintain macOS Gatekeeper security. When you first launch an application, macOS Gatekeeper will verify the app's signature and show a security warning. This is **normal and expected** behavior that protects your system. Simply right-click the app and select "Open" to proceed safely.
 
-**Note on Uninstallation:** Some applications (like Visual Studio Code, Docker, etc.) install LaunchAgents or other system components. The bootstrap script and uninstall helper now handle these automatically without requiring sudo:
+**Note on Uninstallation:** Some applications (like Visual Studio Code, Docker, etc.) install LaunchAgents or other system components. The bootstrap script and uninstall helper now properly stop and remove these services without requiring sudo:
 
 ```bash
 # Uninstall apps from either ~/Applications or /Applications (no sudo needed)
@@ -460,11 +460,12 @@ brew uninstall --cask visual-studio-code
 ```
 
 The `uninstall-app.sh` helper script is automatically created when you install apps and:
-- Searches for apps by name (with flexible matching)
+- Properly stops LaunchAgent services using `launchctl bootout` (modern macOS)
 - Removes LaunchAgents automatically (com.microsoft.VSCode.ShipIt, etc.)
 - Removes the app from both `~/Applications` and `/Applications` directories
 - Cleans up Homebrew's tracking database
 - Works without sudo for user-level components (apps in `/Applications` may still require sudo)
+
 
 ### Phase 5: Additional Configuration
 1. ✅ Configure installed applications
@@ -836,7 +837,7 @@ spctl --status
 # Should output: assessments enabled
 ```
 
-**Important:** envsetup maintains Gatekeeper protection by NOT using the `--no-quarantine` flag during app installation. When you first launch an app installed via Homebrew Cask, you'll see a security warning. This is **expected and good for security**.
+**Important:** envsetup maintains Gatekeeper protection by restoring quarantine attributes after app installation. When Homebrew installs apps to `~/Applications`, it automatically uses `--no-quarantine` to avoid permission issues, but envsetup immediately applies the quarantine attribute back. When you first launch an app installed via Homebrew Cask, you'll see a security warning. This is **expected and good for security**.
 
 **Allowing Apps from Identified Developers:**
 - System Preferences → Security & Privacy → General

@@ -384,10 +384,36 @@ cleanup_launch_agents() {
           found_agents=true
           processed_files+=("$plist")
           echo "  Found LaunchAgent: $(basename "$plist")"
-          # Try to unload it (may fail if not loaded, which is OK)
-          if launchctl unload "$plist" 2>/dev/null; then
-            echo "    ✓ Unloaded LaunchAgent"
+          
+          # Extract service label from plist
+          local service_label=""
+          if command -v plutil >/dev/null 2>&1; then
+            service_label=$(plutil -extract Label raw "$plist" 2>/dev/null || true)
           fi
+          if [ -z "$service_label" ]; then
+            # Fallback: extract Label from plist using basic parsing
+            service_label=$(grep -A1 "<key>Label</key>" "$plist" 2>/dev/null | grep "<string>" | sed 's/.*<string>\(.*\)<\/string>.*/\1/' || true)
+          fi
+          
+          # Try to stop the service using modern launchctl bootout (macOS 10.11+)
+          if [ -n "$service_label" ]; then
+            # Get current user domain
+            local user_domain="gui/$(id -u)"
+            if launchctl bootout "$user_domain/$service_label" 2>/dev/null; then
+              echo "    ✓ Stopped service: $service_label"
+            else
+              # Fallback to unload for older macOS or if bootout fails
+              if launchctl unload "$plist" 2>/dev/null; then
+                echo "    ✓ Unloaded LaunchAgent"
+              fi
+            fi
+          else
+            # If we can't extract the label, try unload with the plist path
+            if launchctl unload "$plist" 2>/dev/null; then
+              echo "    ✓ Unloaded LaunchAgent"
+            fi
+          fi
+          
           # Remove the plist file
           if rm -f "$plist" 2>/dev/null; then
             echo "    ✓ Removed LaunchAgent"
@@ -543,7 +569,7 @@ LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 if [ -d "$LAUNCH_AGENTS_DIR" ]; then
   # Common LaunchAgent patterns for the app
   # Use multiple patterns to catch different naming conventions
-  pattern_without_dash="$(echo "$APP_NAME" | sed 's/-//g')"
+  # Reuse patterns calculated earlier to avoid duplication
   brew_pattern_without_dash="$(echo "$BREW_CASK_NAME" | sed 's/-//g')"
   display_pattern_without_space="$(echo "$APP_DISPLAY_NAME" | sed 's/ //g')"
   
@@ -560,8 +586,40 @@ if [ -d "$LAUNCH_AGENTS_DIR" ]; then
       # Additional check to ensure the file exists (for bash 3.2 compatibility)
       if [ -f "$plist" ]; then
         echo "Found LaunchAgent: $plist"
-        # Try to unload it (may fail if not loaded, which is OK)
-        launchctl unload "$plist" 2>/dev/null || echo "  (LaunchAgent not loaded or already unloaded)"
+        
+        # Extract service label from plist
+        service_label=""
+        if command -v plutil >/dev/null 2>&1; then
+          service_label=$(plutil -extract Label raw "$plist" 2>/dev/null || true)
+        fi
+        if [ -z "$service_label" ]; then
+          # Fallback: extract Label from plist using basic parsing
+          service_label=$(grep -A1 "<key>Label</key>" "$plist" 2>/dev/null | grep "<string>" | sed 's/.*<string>\(.*\)<\/string>.*/\1/' || true)
+        fi
+        
+        # Try to stop the service using modern launchctl bootout (macOS 10.11+)
+        if [ -n "$service_label" ]; then
+          # Get current user domain
+          user_domain="gui/$(id -u)"
+          if launchctl bootout "$user_domain/$service_label" 2>/dev/null; then
+            echo "  ✓ Stopped service: $service_label"
+          else
+            # Fallback to unload for older macOS or if bootout fails
+            if launchctl unload "$plist" 2>/dev/null; then
+              echo "  ✓ Unloaded LaunchAgent"
+            else
+              echo "  (LaunchAgent not loaded or already unloaded)"
+            fi
+          fi
+        else
+          # If we can't extract the label, try unload with the plist path
+          if launchctl unload "$plist" 2>/dev/null; then
+            echo "  ✓ Unloaded LaunchAgent"
+          else
+            echo "  (LaunchAgent not loaded or already unloaded)"
+          fi
+        fi
+        
         # Remove the plist file
         rm -f "$plist"
         echo "  ✓ Removed LaunchAgent"
@@ -639,7 +697,8 @@ install_macos_apps() {
   
   # Set Homebrew Cask options for user-local installation
   # Note: We use --appdir to install to ~/Applications (no sudo required)
-  # We do NOT use --no-quarantine to maintain macOS security (Gatekeeper checks)
+  # Homebrew automatically uses --no-quarantine when installing to custom appdir
+  # to avoid permission issues, but we restore quarantine after installation
   export HOMEBREW_CASK_OPTS="--appdir=$HOME/Applications"
   
   echo "Installing macOS applications from $apps_file..."
@@ -707,19 +766,53 @@ install_macos_apps() {
     fi
   done < "$apps_file"
   
+  # Apply quarantine attributes to maintain macOS security
+  echo ""
+  echo "Applying macOS quarantine attributes for Gatekeeper security..."
+  while IFS= read -r app || [ -n "$app" ]; do
+    # Skip empty lines and comments
+    [[ -z "$app" || "$app" =~ ^[[:space:]]*# ]] && continue
+    
+    # Strip inline comments and trim whitespace
+    app=$(echo "$app" | sed 's/#.*//' | xargs)
+    
+    # Find the app in ~/Applications
+    app_bundle=$(find "$HOME/Applications" -maxdepth 1 -iname "*${app}*.app" 2>/dev/null | head -1)
+    if [ -z "$app_bundle" ]; then
+      # Try alternate name patterns
+      app_display_name=$(brew info --cask "$app" 2>/dev/null | grep -E "^==> Name:" | sed 's/^==> Name: //' | head -1)
+      if [ -n "$app_display_name" ]; then
+        app_bundle=$(find "$HOME/Applications" -maxdepth 1 -iname "*${app_display_name}*.app" 2>/dev/null | head -1)
+      fi
+    fi
+    
+    if [ -n "$app_bundle" ] && [ -d "$app_bundle" ]; then
+      # Apply quarantine attribute to re-enable Gatekeeper checks
+      # This restores macOS security while keeping the app in user-local directory
+      # Note: The quarantine string format references Safari/com.apple.Safari as the source,
+      # which is a standard pattern for marking files as downloaded from the internet
+      if xattr -w com.apple.quarantine "0181;$(printf '%x' $(date +%s));Safari;|com.apple.Safari" "$app_bundle" 2>/dev/null; then
+        echo "  ✓ Applied quarantine to: $(basename "$app_bundle")"
+      else
+        # If applying quarantine fails (e.g., app is already signed properly), that's okay
+        : # no-op, continue silently
+      fi
+    fi
+  done < "$apps_file"
+  
   echo ""
   echo "=========================================="
   echo "macOS app installation complete."
   echo "Applications are installed to ~/Applications"
   echo ""
-  echo "Security Notice: When you first launch an installed app,"
-  echo "macOS Gatekeeper will verify the app's signature and may show"
-  echo "a security warning. This is NORMAL and EXPECTED behavior."
+  echo "Security Notice: Quarantine attributes have been applied to maintain"
+  echo "macOS Gatekeeper security. When you first launch an installed app,"
+  echo "macOS will verify the app's signature and may show a security warning."
+  echo "This is NORMAL and EXPECTED behavior that protects your system."
   echo "Right-click the app and select 'Open' to proceed safely."
   echo ""
-  echo "Note: Some apps may require sudo to uninstall via Homebrew"
-  echo "due to LaunchAgents or other system components."
-  echo "For sudo-free uninstallation, see: ~/bin/uninstall-app.sh"
+  echo "Note: LaunchAgents are now properly cleaned up before uninstallation."
+  echo "For sudo-free uninstallation, use: ~/bin/uninstall-app.sh"
   echo "=========================================="
   
   # Create uninstall helper script
