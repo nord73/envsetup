@@ -390,7 +390,7 @@ bash scripts/bootstrap.sh --apps
 
 **Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access during installation. You can still launch them from Spotlight, Launchpad, or directly from `~/Applications`. 
 
-**Security Notice:** When you first launch an installed app, macOS Gatekeeper will verify the app's signature and may show a security warning. This is **normal and expected** behavior that protects your system. Right-click the app and select "Open" to proceed safely. The envsetup script maintains proper macOS security by NOT bypassing Gatekeeper checks.
+**Security Notice:** When installing to `~/Applications`, Homebrew automatically uses `--no-quarantine` to avoid permission issues. However, envsetup immediately restores quarantine attributes after installation to maintain macOS Gatekeeper security. When you first launch an installed app, macOS Gatekeeper will verify the app's signature and show a security warning. This is **normal and expected** behavior that protects your system. Right-click the app and select "Open" to proceed safely.
 
 **Existing Apps:** If an app is already installed in the system `/Applications` directory, the bootstrap script will automatically:
 1. Remove any LaunchAgents that would require sudo during uninstall
@@ -401,7 +401,7 @@ The old version in `/Applications` will remain (can be removed manually if desir
 
 **Uninstalling Applications:**
 
-Some applications (like Visual Studio Code) install LaunchAgents or other system components. The new uninstall process handles these automatically without requiring sudo:
+Some applications (like Visual Studio Code) install LaunchAgents or other system components. The uninstall process now properly stops and removes these services without requiring sudo:
 
 ```bash
 # Use the improved uninstall helper script (no sudo needed)
@@ -415,12 +415,13 @@ brew uninstall --cask visual-studio-code
 ```
 
 The `uninstall-app.sh` helper script is automatically created when you install apps and:
+- Properly stops LaunchAgent services using `launchctl bootout` (modern macOS)
 - Automatically removes LaunchAgents (com.microsoft.VSCode.ShipIt, etc.) without sudo
 - Searches for apps using flexible name matching (handles "visual-studio-code", "Visual Studio Code", "microsoft-visual-studio", etc.)
 - Works with apps in both `~/Applications` and `/Applications` directories
 - Cleans up Homebrew's tracking database
 
-**Technical Details:** The bootstrap script now removes LaunchAgents before calling `brew uninstall`, preventing the sudo prompt that previously occurred.
+**Technical Details:** The bootstrap script now properly stops and removes LaunchAgents before calling `brew uninstall`, preventing the sudo prompt that previously occurred.
 
 #### Mac App Store Applications
 
