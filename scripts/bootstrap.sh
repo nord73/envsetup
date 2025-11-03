@@ -600,7 +600,7 @@ if [ -d "$LAUNCH_AGENTS_DIR" ]; then
         # Try to stop the service using modern launchctl bootout (macOS 10.11+)
         if [ -n "$service_label" ]; then
           # Get current user domain
-          user_domain="gui/$(id -u)"
+          local user_domain="gui/$(id -u)"
           if launchctl bootout "$user_domain/$service_label" 2>/dev/null; then
             echo "  ✓ Stopped service: $service_label"
           else
@@ -789,6 +789,8 @@ install_macos_apps() {
     if [ -n "$app_bundle" ] && [ -d "$app_bundle" ]; then
       # Apply quarantine attribute to re-enable Gatekeeper checks
       # This restores macOS security while keeping the app in user-local directory
+      # Note: The quarantine string format references Safari/com.apple.Safari as the source,
+      # which is a standard pattern for marking files as downloaded from the internet
       if xattr -w com.apple.quarantine "0181;$(printf '%x' $(date +%s));Safari;|com.apple.Safari" "$app_bundle" 2>/dev/null; then
         echo "  ✓ Applied quarantine to: $(basename "$app_bundle")"
       else
