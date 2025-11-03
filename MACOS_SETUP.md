@@ -443,6 +443,8 @@ Follow this order for the cleanest setup:
 2. Uninstall the app from Homebrew's tracking
 3. Reinstall it to `~/Applications`
 
+**Important Security Note:** When you first launch an application installed via Homebrew Cask, macOS Gatekeeper will verify the app's signature and show a security warning. This is **normal and expected** behavior that protects your system. Simply click "Open" in the dialog to proceed. The envsetup script does NOT use `--no-quarantine` flag to maintain proper macOS security checks. Do not disable Gatekeeper or bypass these security warnings unless you fully trust the application source.
+
 **Note on Uninstallation:** Some applications (like Visual Studio Code, Docker, etc.) install LaunchAgents or other system components. The bootstrap script and uninstall helper now handle these automatically without requiring sudo:
 
 ```bash
@@ -834,15 +836,25 @@ spctl --status
 # Should output: assessments enabled
 ```
 
+**Important:** envsetup maintains Gatekeeper protection by NOT using the `--no-quarantine` flag during app installation. When you first launch an app installed via Homebrew Cask, you'll see a security warning. This is **expected and good for security**.
+
 **Allowing Apps from Identified Developers:**
 - System Preferences → Security & Privacy → General
 - "Allow apps downloaded from: App Store and identified developers"
 
-**Running Unsigned Apps (Use Caution):**
+**First Launch Security Warning:**
+When launching a newly installed app, macOS will show: *"[App] cannot be opened because it is from an unidentified developer"* or *"[App] was downloaded from the Internet. Are you sure you want to open it?"*
+
+To open the app:
+1. **Right-click** (or Control-click) the app → **Open** (first time only)
+2. Click **Open** in the confirmation dialog
+3. The app will launch and you won't see this warning again
+
+**Never Disable Gatekeeper (Use Caution):**
 ```bash
-# Right-click app → Open (first time only)
-# Or temporarily disable (not recommended):
-sudo spctl --master-disable
+# Disabling Gatekeeper is NOT recommended and weakens system security
+# Only do this if you absolutely understand the risks
+sudo spctl --master-disable  # NOT RECOMMENDED
 ```
 
 ### SSH Key Management

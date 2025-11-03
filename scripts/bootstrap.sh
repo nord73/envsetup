@@ -638,7 +638,9 @@ install_macos_apps() {
   mkdir -p "$HOME/Applications"
   
   # Set Homebrew Cask options for user-local installation
-  export HOMEBREW_CASK_OPTS="--appdir=$HOME/Applications --no-quarantine"
+  # Note: We use --appdir to install to ~/Applications (no sudo required)
+  # We do NOT use --no-quarantine to maintain macOS security (Gatekeeper checks)
+  export HOMEBREW_CASK_OPTS="--appdir=$HOME/Applications"
   
   echo "Installing macOS applications from $apps_file..."
   echo "Applications will be installed to ~/Applications (user-local, no sudo required)"
@@ -709,6 +711,11 @@ install_macos_apps() {
   echo "=========================================="
   echo "macOS app installation complete."
   echo "Applications are installed to ~/Applications"
+  echo ""
+  echo "Security Notice: When you first launch an installed app,"
+  echo "macOS Gatekeeper will verify the app's signature and may show"
+  echo "a security warning. This is NORMAL and EXPECTED behavior."
+  echo "Right-click the app and select 'Open' to proceed safely."
   echo ""
   echo "Note: Some apps may require sudo to uninstall via Homebrew"
   echo "due to LaunchAgents or other system components."

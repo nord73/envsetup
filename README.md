@@ -390,6 +390,8 @@ bash scripts/bootstrap.sh --apps
 
 **Note:** Applications are installed to `~/Applications` (user-local directory) to avoid requiring sudo access during installation. You can still launch them from Spotlight, Launchpad, or directly from `~/Applications`. 
 
+**Security Notice:** When you first launch an installed app, macOS Gatekeeper will verify the app's signature and may show a security warning. This is **normal and expected** behavior that protects your system. Right-click the app and select "Open" to proceed safely. The envsetup script maintains proper macOS security by NOT bypassing Gatekeeper checks.
+
 **Existing Apps:** If an app is already installed in the system `/Applications` directory, the bootstrap script will automatically:
 1. Remove any LaunchAgents that would require sudo during uninstall
 2. Uninstall the app from Homebrew's tracking
